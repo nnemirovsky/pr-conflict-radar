@@ -22,6 +22,7 @@ The action runs in a workflow with write access to check runs and pull request c
 
 - Any way to make the action execute code, a script or a command taken from a pull request. It is designed to parse pull request content as data only.
 - Any way for pull request content (file names, file contents, branch names, titles, labels) to inject commands, or to inject markup that changes the meaning of what the action publishes on another pull request.
+- Any way for pull request content to form a mention or to enter a link target. Pull request content never enters a link target, with one exception: an author login that matches GitHub's username format, `^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$`, or `name[bot]` with `name` in that format, becomes the path of a `https://github.com/` or `https://github.com/apps/` link, and such a link never mentions or notifies anyone.
 - Leaking the workflow token or any other secret into logs, check runs or comments.
 - Writing anything derived from pull request content outside the repository's git directory and the runner's temp directory, or reading files outside the workspace and the runner's temp directory.
 - Publishing to a repository other than the one the workflow runs in.

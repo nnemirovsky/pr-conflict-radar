@@ -4,6 +4,7 @@ import {
   ANNOTATION_MESSAGES,
   annotation,
   escapeText,
+  loginLink,
   logLine,
   markerJson,
 } from "../lib/escape.mjs";
@@ -92,6 +93,59 @@ describe("escapeText", () => {
     assert.equal(escapeText(15), "<code>15</code>");
     assert.equal(escapeText(""), "<code></code>");
   });
+});
+
+// Logins that are neither in GitHub's username format nor `<name>[bot]` with
+// `name` in it.
+const HOSTILE_LOGINS = {
+  "a closing parenthesis": "a)b",
+  "a link of its own": "x](https://evil.example)",
+  "a team mention": "@team",
+  "40 characters": "a".repeat(40),
+  "an underscore": "dev_a",
+  "a Cyrillic lookalike letter": "d\u0435v-a",
+  "fullwidth letters": "\uFF44\uFF45\uFF56",
+  "a Unicode hyphen": "dev\u2010a",
+  "a zero-width space": "dev-a\u200B",
+  "a trailing line break": "dev-a\n",
+  "a leading hyphen": "-dev",
+  "a trailing hyphen": "dev-",
+  "two hyphens in a row": "dev--a",
+  "a space": "dev a",
+  "an empty string": "",
+  "a hostile bot name": "x](https://evil.example)[bot]",
+  "a bot suffix alone": "[bot]",
+  "a doubled bot suffix": "dependabot[bot][bot]",
+  "an upper-case bot suffix": "dependabot[BOT]",
+  "a bot name of 40 characters": `${"a".repeat(40)}[bot]`,
+};
+
+describe("loginLink", () => {
+  it("links a login in the username format to its profile", () => {
+    assert.equal(loginLink("dev-a"), "[dev-a](https://github.com/dev-a)");
+    assert.equal(loginLink("A1"), "[A1](https://github.com/A1)");
+    const longest = `a-${"b".repeat(37)}`;
+    assert.equal(longest.length, 39);
+    assert.equal(loginLink(longest), `[${longest}](https://github.com/${longest})`);
+  });
+
+  it("links a bot login to its app with the brackets of the text escaped", () => {
+    assert.equal(
+      loginLink("dependabot[bot]"),
+      "[dependabot\\[bot\\]](https://github.com/apps/dependabot)",
+    );
+    assert.equal(loginLink("my-app[bot]"), "[my-app\\[bot\\]](https://github.com/apps/my-app)");
+  });
+
+  for (const [name, login] of Object.entries(HOSTILE_LOGINS)) {
+    it(`writes a login with ${name} as escaped code with no link`, () => {
+      const output = loginLink(login);
+      assert.equal(output, escapeText(login));
+      assert.ok(!output.includes("]("), output);
+      assert.ok(!output.includes("github.com"), output);
+      assert.ok(!output.includes("@"), output);
+    });
+  }
 });
 
 describe("markerJson", () => {

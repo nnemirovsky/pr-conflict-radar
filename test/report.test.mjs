@@ -6,10 +6,13 @@ import { escapeText } from "../lib/escape.mjs";
 import {
   BUDGET,
   buildResults,
+  COMMENT_LINE,
   EMBED_BUDGET,
   embed,
   extract,
   findings,
+  OTHERS_LINE,
+  OWN_LINE,
   PEERBUS_LINE,
   PEERBUS_LINK,
   PEERBUS_OPTIONAL_LINE,
@@ -504,33 +507,44 @@ describe("renderCheck", () => {
     const cfg = config();
     const { summary } = renderCheck(mixedResults(cfg)[0], cfg);
     const others = summary.indexOf("### Pull requests of other authors");
-    const own = summary.indexOf("### Pull requests by the same author");
+    const own = summary.indexOf("### Pull requests of yours");
     assert.ok(others >= 0 && own > others, summary);
     const [otherTable, ownTable] = tables(summary);
-    assert.match(otherTable[0], /\| Author \|/);
-    assert.match(otherTable[2], /^\| #15 \| <code>dev-b<\/code> \|/);
+    assert.equal(otherTable[0], "| Pull request | Author | Files | Who rebases | Pair key |");
+    assert.equal(ownTable[0], otherTable[0]);
+    assert.ok(
+      otherTable[2].startsWith("| #15 | [dev-b](https://github.com/dev-b) | "),
+      otherTable[2],
+    );
     assert.equal(otherTable.length, 3);
-    assert.match(ownTable[2], /^\| #18 \| <code>dev-a<\/code> \|/);
+    assert.ok(ownTable[2].startsWith("| #18 | [dev-a](https://github.com/dev-a) | "), ownTable[2]);
     assert.equal(ownTable.length, 3);
+    for (const table of [otherTable, ownTable]) {
+      assert.doesNotMatch(table[0], /Merges first|Class/);
+    }
   });
 
-  it("uses the different-author wording with a plain login and the pair key", () => {
+  it("uses the different-author wording with a profile link and the pair key in the table", () => {
     const cfg = config();
     const { summary } = renderCheck(mixedResults(cfg)[0], cfg);
-    const key = escapeText("conflict/widgets/12+15");
-    assert.ok(summary.includes(`- #15 by <code>dev-b</code>, pair key ${key}`), summary);
+    const others = summary.slice(0, summary.indexOf("### Pull requests of yours"));
+    const otherTable = tables(others)[0];
+    const afterTable = others.slice(others.indexOf(otherTable.at(-1)) + otherTable.at(-1).length);
+    assert.ok(otherTable[2].endsWith(` | #15 | ${escapeText("conflict/widgets/12+15")} |`));
+    assert.ok(afterTable.startsWith(`\n\n${OTHERS_LINE}\n\n${PEERBUS_LINE}`), afterTable);
+    assert.doesNotMatch(others, /^- /m);
     assert.ok(!summary.includes("@dev-b"));
     assert.ok(!/@[a-z]/.test(summary));
   });
 
-  it("uses the same-author wording: both theirs, one session, key optional", () => {
+  it("uses the own wording: both yours, the intro before the table, the key in the table", () => {
     const cfg = config();
     const { summary } = renderCheck(mixedResults(cfg)[0], cfg);
-    const own = summary.slice(summary.indexOf("### Pull requests by the same author"));
-    assert.match(own, /by the same author/);
-    assert.match(own, /resolved in one session/);
-    assert.match(own, /Pair keys, optional:/);
-    assert.ok(own.includes(`- #18, pair key ${escapeText("conflict/widgets/12+18")}`));
+    const own = summary.slice(summary.indexOf("### Pull requests of yours"));
+    assert.ok(own.startsWith(`### Pull requests of yours\n\n${OWN_LINE}\n\n| Pull request |`), own);
+    assert.ok(tables(own)[0][2].endsWith(` | ${escapeText("conflict/widgets/12+18")} |`));
+    assert.ok(own.trimEnd().endsWith(PEERBUS_OPTIONAL_LINE), own);
+    assert.doesNotMatch(own, /Pair keys, optional|^- /m);
   });
 
   it("keeps every key in the embedded JSON in both groups", () => {
@@ -608,8 +622,8 @@ describe("renderComment", () => {
     const result = mixedResults(cfg)[0];
     const data = { ...findings(result, cfg), notified: ["conflict/widgets/12+15"] };
     const body = renderComment(data, cfg);
-    assert.match(body, /conflicts with 2 other open pull requests/);
-    assert.ok(body.indexOf("other authors") < body.indexOf("same author"));
+    assert.ok(body.startsWith(`${COMMENT_LINE}\n\n### Pull requests of other authors\n\n`), body);
+    assert.ok(body.indexOf("other authors") < body.indexOf("Pull requests of yours"));
     assert.deepEqual(extract(body), data);
     assertTablesIntact(stripMarker(body));
   });
@@ -737,6 +751,75 @@ describe("suggestPeerbus", () => {
     for (const suggestPeerbus of [true, false]) {
       const cfg = config({ suggestPeerbus });
       assert.doesNotMatch(JSON.stringify(mixedResults(cfg)), /peerbus/i);
+    }
+  });
+});
+
+describe("login links", () => {
+  const LINKED = {
+    "dev-b": "[dev-b](https://github.com/dev-b)",
+    "dependabot[bot]": "[dependabot\\[bot\\]](https://github.com/apps/dependabot)",
+  };
+  const HOSTILE_LOGINS = [
+    "a)b",
+    "x](https://evil.example)",
+    "@team",
+    "b".repeat(40),
+    "dev_b",
+    "d\u0435v-b",
+    "\uFF44\uFF45\uFF56",
+    "dev\u2010b",
+    "x](https://evil.example)[bot]",
+  ];
+
+  // The pull request 12 by dev-a conflicting with and overlapping 15 by
+  // `login`, rendered everywhere a login shows.
+  function rendered(login) {
+    const cfg = config();
+    const prs = [pull(12), pull(15, { author: login })];
+    const results = buildResults(sim({ prs, pairs: [conflictPair(12, 15)] }), cfg, REPO);
+    const twelve = withOverlap(resultOf(results, 12));
+    twelve.overlaps[0].withAuthor = login;
+    return [
+      renderCheck(twelve, cfg).summary,
+      stripMarker(renderComment({ ...findings(twelve, cfg), notified: [] }, cfg)),
+      renderJobSummary([twelve, resultOf(results, 15)], cfg),
+    ];
+  }
+
+  const targets = (text) => [...text.matchAll(/\]\(([^)]*)\)/g)].map((match) => match[1]);
+
+  for (const [login, link] of Object.entries(LINKED)) {
+    it(`links ${login} with no mention and keeps the tables intact`, () => {
+      const [summary, comment, job] = rendered(login);
+      for (const text of [summary, comment, job]) {
+        assert.ok(text.includes(link), text);
+        assert.ok(!text.includes("@"), text);
+        assertTablesIntact(text);
+      }
+      const others = tables(summary)[0];
+      assert.ok(others[2].startsWith(`| #15 | ${link} | `), others[2]);
+      assert.ok(job.includes(`[dev-a](https://github.com/dev-a), ${link}`), job);
+    });
+  }
+
+  for (const login of HOSTILE_LOGINS) {
+    it(`writes ${JSON.stringify(login)} as escaped code with no link and no mention`, () => {
+      const allowed = new Set(["https://github.com/dev-a", PEERBUS_LINK]);
+      for (const text of rendered(login)) {
+        assert.ok(text.includes(escapeText(login)), text);
+        for (const target of targets(text)) assert.ok(allowed.has(target), target);
+        assert.ok(!text.includes("evil.example"), text);
+        assert.ok(!text.includes("@"), text);
+        assertTablesIntact(text);
+      }
+    });
+  }
+
+  it("writes an unknown author as plain text", () => {
+    const [summary, comment] = rendered(null);
+    for (const text of [summary, comment]) {
+      assert.ok(tables(text)[0][2].startsWith("| #15 | unknown | "), text);
     }
   });
 });
@@ -1077,7 +1160,7 @@ describe("size budget", () => {
     const body = renderComment(data, cfg);
     assert.ok(body.length < BUDGET, String(body.length));
     assert.deepEqual(extract(body), kept);
-    assert.ok(body.includes("This pull request conflicts with 199 other open pull requests"));
+    assert.ok(body.startsWith(COMMENT_LINE));
     assert.match(body, /\d+ more rows left out\./);
     assertTablesIntact(stripMarker(body));
   });
