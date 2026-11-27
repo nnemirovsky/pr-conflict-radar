@@ -14,6 +14,7 @@
 // text. `dir` is the mapper's directory (the action's own `members/<key>` by
 // default).
 
+import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -144,6 +145,66 @@ function runGo({ work, env, request, maxFileBytes }) {
   return { command: goBinary(work), args: [request, String(maxFileBytes)], cwd: work, env };
 }
 
+// Cargo and rustup variables that survive into the build: `CARGO_HOME` only.
+// Every other `CARGO_*`, `RUSTC*`, `RUSTDOC*`, `RUSTFLAGS` and
+// `RUSTUP_TOOLCHAIN` variable of the job is dropped, so neither the job's flags
+// nor a wrapper nor a toolchain override applies.
+const RUST_VARIABLE = /^(CARGO_.*|RUSTC.*|RUSTDOC.*|RUSTFLAGS|RUSTUP_TOOLCHAIN)$/;
+
+function rustBinary(work) {
+  return join(
+    work,
+    "cargo-target",
+    "release",
+    process.platform === "win32" ? "member-map.exe" : "member-map",
+  );
+}
+
+// The `channel` of the mapper's `rust-toolchain.toml`, its one toolchain pin.
+function rustChannel(dir) {
+  const text = readFileSync(join(dir, "rust-toolchain.toml"), "utf8");
+  const match = /^\s*channel\s*=\s*"([^"]+)"/m.exec(text);
+  if (!match) throw new Error(`${join(dir, "rust-toolchain.toml")} has no channel`);
+  return match[1];
+}
+
+// Both steps run from an empty directory of the work directory, so no
+// `.cargo/config.toml` or `rust-toolchain.toml` of a directory above the action
+// applies; the manifest's own `[workspace]` stops a parent workspace.
+function buildRust({ dir, work, env }) {
+  const channel = rustChannel(dir);
+  const cwd = join(work, "rust-build");
+  mkdirSync(cwd, { recursive: true });
+  const clean = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (RUST_VARIABLE.test(name) && name !== "CARGO_HOME") continue;
+    clean[name] = value;
+  }
+  const stepEnv = {
+    ...clean,
+    RUSTUP_TOOLCHAIN: channel,
+    CARGO_TARGET_DIR: join(work, "cargo-target"),
+  };
+  return [
+    {
+      command: "rustup",
+      args: ["toolchain", "install", channel, "--profile", "minimal", "--no-self-update"],
+      cwd,
+      env: stepEnv,
+    },
+    {
+      command: "cargo",
+      args: ["build", "--release", "--locked", "--manifest-path", join(dir, "Cargo.toml")],
+      cwd,
+      env: stepEnv,
+    },
+  ];
+}
+
+function runRust({ work, env, request, maxFileBytes }) {
+  return { command: rustBinary(work), args: [request, String(maxFileBytes)], cwd: work, env };
+}
+
 export const registry = Object.freeze([
   Object.freeze({
     key: "typescript",
@@ -174,6 +235,8 @@ export const registry = Object.freeze([
   }),
   Object.freeze({
     key: "rust",
+    build: buildRust,
+    run: runRust,
     patterns: Object.freeze(["**/*.rs"]),
   }),
   Object.freeze({
