@@ -98,7 +98,7 @@ jobs:
       statuses: read
     steps:
       - uses: actions/checkout@v7
-      - uses: nnemirovsky/pr-conflict-radar@<commit SHA> # v0.1.0
+      - uses: nnemirovsky/pr-conflict-radar@f544cfa751b9ddb8597373dc755b61200ae11659 # v0.1.0
         with:
           force: ${{ inputs.force || false }}
           dry-run: ${{ inputs.dry-run || (github.event_name == 'workflow_dispatch' && github.ref_name != github.event.repository.default_branch) }}

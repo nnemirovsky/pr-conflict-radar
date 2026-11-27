@@ -155,10 +155,19 @@ describe("README example workflows", () => {
     });
   }
 
-  it("pins the action by a placeholder with the release tag in the README", () => {
-    assert.ok(
-      readme.includes(`uses: nnemirovsky/pr-conflict-radar@<commit SHA> # v${pkg.version}`),
+  it("pins the action by a release commit SHA with its tag, the same in the README and the example", () => {
+    const pin = new RegExp(
+      `uses: nnemirovsky/pr-conflict-radar@([0-9a-f]{40}) # v${pkg.version.replaceAll(".", "\\.")}`,
     );
+    const inReadme = readme.match(pin);
+    const inExample = readFileSync(
+      new URL("../examples/pr-conflict-radar.yml", import.meta.url),
+      "utf8",
+    ).match(pin);
+    assert.ok(inReadme, "the README pins a 40-character SHA with the release tag");
+    assert.ok(inExample, "the example pins a 40-character SHA with the release tag");
+    assert.notEqual(inReadme[1], "0".repeat(40));
+    assert.equal(inReadme[1], inExample[1]);
   });
 });
 
