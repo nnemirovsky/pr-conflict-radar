@@ -190,7 +190,7 @@ This example turns the C# mapper on and keeps its default `patterns`. [`examples
 | `members.maxFileBytes` | `1000000` | A file larger than this is not parsed, and a note says so |
 | `maxPrs` | `40` | Most pull requests simulated in one run, from 1 to 200. See below |
 
-Types are checked. `checkName` is a non-empty string. `suggestPeerbus` is a boolean. `patterns`, `ignoreNames` and `labelPriority` are lists of non-empty strings. `minNameLength` is a non-negative integer and `maxFileBytes` a positive one.
+Types are checked. `checkName` is a non-empty string. `suggestPeerbus` is a boolean. `patterns`, `ignoreNames` and `labelPriority` are lists of non-empty strings. `minNameLength` is a non-negative integer and `maxFileBytes` a positive one. `pairKey` is at most 100 characters long.
 
 **Merge order.** The predicted order is: ready before draft, then labels by `order.labelPriority`, then `APPROVED` before anything else, then the lower number first. In a pair, the first pull request merges first and the second one rebases.
 
