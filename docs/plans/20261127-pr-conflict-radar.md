@@ -771,11 +771,11 @@ As built: `lib/members.mjs` exports `mapMembers({base, pulls, config, needed, re
 - Create: `.github/workflows/pr-conflict-radar.yml`
 - Create: `test/workflows.test.mjs`
 
-- [ ] write the two example workflows per "Workflows" and `examples/pr-conflict-radar.json` holding the defaults
-- [ ] install the same two workflows in `.github/workflows/`, with `uses: ./` in place of the pinned reference; they start working when this branch is merged, and from then on every pull request in this repository is scanned
-- [ ] write tests, parsing with `yaml`, that each repository workflow equals its example except for the `uses:` line of the action; that the trigger has no checkout, no step besides the dispatch, `continue-on-error` on that step, `actions: write` as its only job permission and no interpolation of a pull request field into `run:`; that the scan has the concurrency group of "Workflows" without cancellation and the dry-run expression
-- [ ] write a test that `examples/pr-conflict-radar.json` loads and equals the built-in defaults, all five `members` languages and `suggestPeerbus` included
-- [ ] validate the four workflow files with `actionlint` if available, and run tests - must pass before task 18
+- [x] write the two example workflows per "Workflows" and `examples/pr-conflict-radar.json` holding the defaults
+- [x] install the same two workflows in `.github/workflows/`, with `uses: ./` in place of the pinned reference; they start working when this branch is merged, and from then on every pull request in this repository is scanned
+- [x] write tests, parsing with `yaml`, that each repository workflow equals its example except for the `uses:` line of the action; that the trigger has no checkout, no step besides the dispatch, `continue-on-error` on that step, `actions: write` as its only job permission and no interpolation of a pull request field into `run:`; that the scan has the concurrency group of "Workflows" without cancellation and the dry-run expression
+- [x] write a test that `examples/pr-conflict-radar.json` loads and equals the built-in defaults, all five `members` languages and `suggestPeerbus` included
+- [x] validate the four workflow files with `actionlint` if available (run through `go run`; it flags only `queue: max`, which it does not know yet), and run tests - must pass before task 18
 
 ### Task 18: Documentation
 
