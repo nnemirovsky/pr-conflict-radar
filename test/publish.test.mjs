@@ -255,6 +255,27 @@ describe("comment lifecycle", () => {
     }
   });
 
+  it("keeps the row unchanged while its pair still conflicts in a class outside commentClasses", () => {
+    const prs = [pull(12), pull(15)];
+    const s1 = step(EMPTY, prs, { conflicts: [[12, 15, ["README.md", "src/cart.ts"]]] });
+    const before = { 12: pullOf(s1.after, 12).comments[0], 15: pullOf(s1.after, 15).comments[0] };
+    assert.equal(commentData(s1.after, 12).conflicts[0].class, "code");
+
+    // Only the docs conflict remains: the checks change, the comments do not.
+    const s2 = step(s1.after, prs, { conflicts: [[12, 15, ["README.md"]]] });
+    assert.equal(s2.results.find((result) => result.pr === 12).conflicts[0].class, "docs");
+    assert.deepEqual(checkLabels(s2.writes), ["updateCheckRun:12", "updateCheckRun:15"]);
+    assert.deepEqual(commentLabels(s2.writes), []);
+    for (const pr of [12, 15]) assert.deepEqual(pullOf(s2.after, pr).comments, [before[pr]]);
+
+    // Once the pair is clean the row leaves and the comment is resolved.
+    const s3 = step(s2.after, prs);
+    assert.deepEqual(commentLabels(s3.writes), ["updateComment:12", "updateComment:15"]);
+    for (const pr of [12, 15]) {
+      assert.equal(written(s3.writes, WRITE.updateComment, pr).reason, "resolved");
+    }
+  });
+
   it("deletes and creates the resolved comment for a conflict with a new partner", () => {
     const s1 = step(EMPTY, [pull(12), pull(15)], { conflicts: [[12, 15]] });
     const s2 = step(s1.after, [pull(12), pull(15)]);
