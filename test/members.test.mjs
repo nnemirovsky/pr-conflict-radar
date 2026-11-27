@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, describe, it } from "node:test";
@@ -118,6 +126,25 @@ describe("runBuild", () => {
         return true;
       },
     );
+  });
+
+  it("names the OS error of a command that cannot start and keeps it in the report", async () => {
+    const work = mkdtempSync(join(tmpdir(), "pr-conflict-radar-build-"));
+    try {
+      const notExecutable = join(work, "tool");
+      writeFileSync(notExecutable, "#!/bin/sh\n", { mode: 0o644 });
+      await assert.rejects(runBuild(entryFor(notExecutable, []), { work }), (error) => {
+        assert.ok(error instanceof BuildError);
+        assert.match(error.message, /could not start .* \(EACCES\)$/);
+        assert.equal(error.output.length, 1);
+        assert.equal(error.output[0].command, notExecutable);
+        assert.equal(error.output[0].startError.code, "EACCES");
+        assert.match(error.output[0].startError.message, /EACCES/);
+        return true;
+      });
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
   });
 
   it("fails on a non-zero exit and keeps the report", async () => {
@@ -580,6 +607,20 @@ describe("mapMembers limits", () => {
     const missing = () => ({ command: "pr-conflict-radar-no-such-mapper", args: [], cwd: s.work });
     const data = await map(s, { mappers: { ...fakes(s.log), go: missing } });
     assert.match(data.failures[0].message, /could not be started/);
+    assert.deepEqual(data.degraded, [12]);
+  });
+
+  it("names the OS error of a mapper command that cannot start", async () => {
+    const s = scenario({
+      base: { "src/cart.go": CART },
+      heads: { 12: { "src/cart.go": CART.replace("+ 1", "+ 2") } },
+    });
+    const tool = join(s.work, "mapper");
+    writeFileSync(tool, "#!/bin/sh\n", { mode: 0o644 });
+    const blocked = () => ({ command: tool, args: [], cwd: s.work });
+    const data = await map(s, { mappers: { ...fakes(s.log), go: blocked } });
+    assert.equal(data.failures[0].message, "the go member mapper could not be started (EACCES)");
+    assert.equal(data.failures[0].startError.code, "EACCES");
     assert.deepEqual(data.degraded, [12]);
   });
 });
