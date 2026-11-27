@@ -20,7 +20,7 @@ GitHub tells you when a pull request conflicts with its base branch. It does not
 
 ## Quick start
 
-Copy two workflow files into `.github/workflows/` of your repository. Pin the action by the full commit SHA of a release.
+Copy two workflow files into `.github/workflows/` of your repository. Pin the action by the full commit SHA of a release, with the release's tag in a comment. The [releases page](https://github.com/nnemirovsky/pr-conflict-radar/releases) lists each release with its commit.
 
 The trigger reacts to pull request events and does one thing: it starts the scan workflow on the default branch.
 
@@ -98,7 +98,7 @@ jobs:
       statuses: read
     steps:
       - uses: actions/checkout@v7
-      - uses: nnemirovsky/pr-conflict-radar@<commit SHA>
+      - uses: nnemirovsky/pr-conflict-radar@<commit SHA> # v0.1.0
         with:
           force: ${{ inputs.force || false }}
           dry-run: ${{ inputs.dry-run || (github.event_name == 'workflow_dispatch' && github.ref_name != github.event.repository.default_branch) }}
