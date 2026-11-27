@@ -232,6 +232,30 @@ describe("the typescript member mapper", () => {
     ]);
   });
 
+  it("counts only a line feed as a line break, for members, identifiers and syntax errors", async () => {
+    counter += 1;
+    const file = join(work, `separators-${counter}.ts`);
+    // Lines by line feed: 1 the comment with lone carriage returns and U+2028,
+    // 2 the function header, 3 its return, 4 its closing brace.
+    writeFileSync(
+      file,
+      "/*a\rb\u2028c\u2029d*/\nfunction total() {\n  return count;\n}\nconst other = 1;\n",
+    );
+    const result = await map("src/a.ts", [range(3)], file);
+    assert.deepEqual(result.members, [
+      { name: "total", kind: "function", declarationTouched: false },
+    ]);
+    assert.deepEqual(result.identifiers, ["count"]);
+
+    counter += 1;
+    const broken = join(work, `separators-${counter}.ts`);
+    writeFileSync(broken, "/*a\rb\rc*/\nconst x = ;\n");
+    const { response } = await runMapper([
+      { id: 1, path: "src/b.ts", file: broken, ranges: [range(1)] },
+    ]);
+    assert.equal(response[0].error, "syntax error at line 2");
+  });
+
   it("reports a syntax error on its entry and exits 0", async () => {
     const { code, response } = await runMapper([
       { id: "a", path: "broken.ts", file: fixture("broken.ts"), ranges: [range(1, 3)] },

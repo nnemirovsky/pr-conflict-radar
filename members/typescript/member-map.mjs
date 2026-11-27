@@ -55,17 +55,36 @@ function nameText(sf, nameNode) {
   return nameNode.text ?? nameNode.getText(sf);
 }
 
+// The 1-based line of each source position. Only `\n` ends a line, as in
+// git's hunk headers; TypeScript's own line map also ends one at a lone `\r`
+// and at U+2028 and U+2029, which would move every line after it.
+function lineMap(text) {
+  const starts = [0];
+  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) starts.push(i + 1);
+  return (pos) => {
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (starts[mid] <= pos) low = mid;
+      else high = mid - 1;
+    }
+    return low + 1;
+  };
+}
+
 // One parsed file: collects the members whose lines meet the ranges.
 class Mapper {
-  constructor(sf, ranges, component) {
+  constructor(sf, ranges, component, lineOf) {
     this.sf = sf;
     this.ranges = ranges;
     this.component = component;
+    this.lineOf = lineOf;
     this.found = new Map();
   }
 
   line(pos) {
-    return this.sf.getLineAndCharacterOfPosition(pos).line + 1;
+    return this.lineOf(pos);
   }
 
   meets(from, to) {
@@ -192,10 +211,9 @@ class Mapper {
 
 // The identifier names on the lines of `ranges`, found with an explicit stack
 // so a deeply nested file cannot overflow the call stack here.
-function identifiersOn(sf, ranges) {
+function identifiersOn(sf, ranges, lineOf) {
   const names = new Set();
   const stack = [sf];
-  const lineOf = (pos) => sf.getLineAndCharacterOfPosition(pos).line + 1;
   const meets = (from, to) => ranges.some((range) => range.start <= to && range.end >= from);
   while (stack.length > 0) {
     const node = stack.pop();
@@ -243,20 +261,23 @@ function mapEntry(entry, maxFileBytes) {
     if (error instanceof RangeError) throw new EntryError("the file is nested too deeply to parse");
     throw new EntryError("the parser failed on the file");
   }
+  const lineOf = lineMap(text);
   const diagnostics = sf.parseDiagnostics ?? [];
   if (diagnostics.length > 0) {
-    const first = diagnostics[0];
-    const line = sf.getLineAndCharacterOfPosition(first.start ?? 0).line + 1;
-    throw new EntryError(`syntax error at line ${line}`);
+    throw new EntryError(`syntax error at line ${lineOf(diagnostics[0].start ?? 0)}`);
   }
   try {
     const mapper = new Mapper(
       sf,
       entry.ranges,
       scriptKind === ts.ScriptKind.TSX || scriptKind === ts.ScriptKind.JSX,
+      lineOf,
     );
     mapper.statements(sf.statements, "");
-    return { members: [...mapper.found.values()], identifiers: identifiersOn(sf, entry.ranges) };
+    return {
+      members: [...mapper.found.values()],
+      identifiers: identifiersOn(sf, entry.ranges, lineOf),
+    };
   } catch (error) {
     if (error instanceof RangeError) throw new EntryError("the file is nested too deeply to map");
     throw new EntryError("the parser failed on the file");
