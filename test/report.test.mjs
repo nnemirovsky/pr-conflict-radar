@@ -7,6 +7,7 @@ import {
   BUDGET,
   buildResults,
   COMMENT_LINE,
+  DETAILS_LINE,
   EMBED_BUDGET,
   embed,
   extract,
@@ -613,6 +614,27 @@ describe("renderCheck", () => {
     assert.match(text, /can be wrong/);
     assert.ok(text.includes(escapeText("total")));
     assert.ok(!summary.includes("Hints"));
+    assert.ok(text.startsWith(`${DETAILS_LINE}\n\n### Hints`), text);
+  });
+
+  it("opens the text with a visible line before the embedded result, clean or conflicting", () => {
+    const cfg = config();
+    const prs = [pull(12), pull(15, { author: "dev-b" })];
+    const clean = buildResults(sim({ prs, pairs: [{ first: 12, second: 15 }] }), cfg, REPO);
+    const conflicting = buildResults(
+      sim({ prs, pairs: [conflictPair(12, 15, ["src/cart.ts"])] }),
+      cfg,
+      REPO,
+    );
+    for (const result of [clean[0], conflicting[0], conflicting[1]]) {
+      const { text } = renderCheck(result, cfg);
+      assert.notEqual(stripMarker(text).trim(), "", `#${result.pr}`);
+      assert.ok(text.startsWith(`${DETAILS_LINE}\n\n<!-- pr-conflict-radar:v1 `), text);
+      assert.deepEqual(extract(text), result);
+    }
+    assert.equal(renderCheck(conflicting[0], cfg).conclusion, "neutral");
+    assert.equal(renderCheck(clean[0], cfg).conclusion, "success");
+    assert.doesNotMatch(DETAILS_LINE, /<|>|\{|#\d/);
   });
 });
 

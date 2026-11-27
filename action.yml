@@ -1,5 +1,8 @@
 name: PR conflict radar
 description: Predicts conflicts between open pull requests, and between pull requests and the default branch, before they merge. Never blocks and never runs pull request code.
+branding:
+  icon: git-pull-request
+  color: orange
 
 inputs:
   token:

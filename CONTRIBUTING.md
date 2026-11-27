@@ -60,8 +60,19 @@ Text that a pull request controls (file paths, member names, labels, author logi
 ## Pull requests
 
 - Open a PR against `main`. Direct pushes are blocked.
-- CI must be green and every review thread resolved before a PR can merge.
+- The `test` and `lint` jobs of `.github/workflows/ci.yml` are required checks, and every review thread must be resolved before a PR can merge. The required checks match the job names, so keep the jobs named exactly `test` and `lint` and give `ci.yml` no `paths:` filter. The radar's own check and its `dispatch` and `scan` jobs are never required.
 - PRs are squash-merged, and the PR title becomes the commit subject, so write it as a commit message.
+
+## Releases
+
+A release is a signed annotated `v*` tag on a squash commit of `main`. The tag's version must equal `package.json`'s `version`: bump it in a PR first, then tag the merged commit and push the tag:
+
+```sh
+git tag -s v<version> -m "v<version>" <commit SHA>
+git push origin v<version>
+```
+
+`.github/workflows/release.yml` runs on the tag, refuses it when it disagrees with `package.json`, and publishes the release with generated notes. A pushed `v*` tag cannot be moved or deleted. Consumers pin the action by the release's full commit SHA, with the tag in a comment, as the README's quick start shows.
 
 ## Commits
 

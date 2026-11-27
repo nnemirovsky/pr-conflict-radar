@@ -7,6 +7,7 @@ import { registry } from "../members/registry.mjs";
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readme = read("README.md");
+const pkg = JSON.parse(read("package.json"));
 
 // The lines of the README between the heading `## <title>` and the next
 // heading of the same level.
@@ -154,8 +155,38 @@ describe("README example workflows", () => {
     });
   }
 
-  it("pins the action by a placeholder in the README", () => {
-    assert.ok(readme.includes("uses: nnemirovsky/pr-conflict-radar@<commit SHA>"));
+  it("pins the action by a placeholder with the release tag in the README", () => {
+    assert.ok(
+      readme.includes(`uses: nnemirovsky/pr-conflict-radar@<commit SHA> # v${pkg.version}`),
+    );
+  });
+});
+
+describe("README release wording", () => {
+  const released = /^\d+\.\d+\.\d+$/.test(pkg.version) && pkg.version !== "0.0.0";
+
+  it("carries no status line", () => {
+    const status = readme
+      .split("\n")
+      .filter(
+        (line) => /^[\s>*_#-]*status\b[*_]*\s*:/i.test(line) || /^#+\s*status\s*$/i.test(line),
+      );
+    assert.deepEqual(status, []);
+  });
+
+  it("claims nowhere that nothing is released", {
+    skip: !released && "package.json carries no release version",
+  }, () => {
+    const claims = [
+      /\b(?:not|never) (?:yet )?(?:been )?released\b/i,
+      /\bunreleased\b/i,
+      /\bno (?:release|version|tag)s? (?:yet|exists?|has been)\b/i,
+      /\bnothing (?:is |has been )?(?:yet )?released\b/i,
+      /\b(?:before|until|ahead of) the first release\b/i,
+      /\bpre-?release\b/i,
+      /\bwork in progress\b/i,
+    ];
+    for (const claim of claims) assert.doesNotMatch(readme, claim);
   });
 });
 
