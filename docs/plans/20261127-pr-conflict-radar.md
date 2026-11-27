@@ -478,15 +478,17 @@ jobs:
 - Create: `test/fixture-repo.mjs`
 - Create: `test/git.test.mjs`
 
-- [ ] implement the fixture helper: create a temp repo with a configurable default branch name, commit files, create branches with edits, publish a pull request head on the remote under `refs/pull/<n>/head` only (no branch points at it), add a tag, make a shallow clone, return SHAs, clean up
-- [ ] implement `assertGitVersion()` (2.38+), `verifyCommit(sha)` and `mergeTree(ours, theirs)` returning `{clean, tree, conflictedPaths}` per the contract in "Simulation", with every git call made through an argument array and its output captured
-- [ ] implement `commitMerge(tree, ours, theirs)` with the fixed identity, `mergeBase(a, b)`, `fetchCommits(remote, base, heads)` by SHA into `refs/pr-conflict-radar/*` with `--no-tags --no-write-fetch-head`, unshallowing only a shallow clone, and `deleteRefs()`
-- [ ] implement `changedFiles(base, head)` from `git diff --raw -z -M --no-abbrev`, returning status, path, previous path and both blob ids per file
-- [ ] write tests: clean merge, textual conflict with the conflicted paths, rename plus edit, a path containing spaces, a default branch that is not `main`
-- [ ] write failure tests: a missing ref and an unknown SHA are rejected by `verifyCommit` before any merge, the output parser rejects an exit 1 that carries no tree OID, unrelated histories throw, `fetchCommits` throws for a SHA the remote does not have
-- [ ] write tests that `commitMerge` output can be merged again; that `fetchCommits` fetches a head that only `refs/pull/<n>/head` reaches, in a shallow and in a complete clone, creates only `refs/pr-conflict-radar/*` refs and moves no remote-tracking ref and creates no tag although the remote has a newer default branch and a tag; that `mergeBase` works after `fetchCommits` in a shallow clone; that `deleteRefs` leaves the ref list as it was before the fetch
-- [ ] write tests for `changedFiles`: addition, deletion, modification, rename with edit, and paths that contain a space, a non-ASCII character, `"`, `\`, a tab and a line break, each returned byte for byte; and that a branch name or path made of shell metacharacters is handled as plain data
-- [ ] run tests - must pass before task 4
+- [x] implement the fixture helper: create a temp repo with a configurable default branch name, commit files, create branches with edits, publish a pull request head on the remote under `refs/pull/<n>/head` only (no branch points at it), add a tag, make a shallow clone, return SHAs, clean up
+- [x] implement `assertGitVersion()` (2.38+), `verifyCommit(sha)` and `mergeTree(ours, theirs)` returning `{clean, tree, conflictedPaths}` per the contract in "Simulation", with every git call made through an argument array and its output captured
+- [x] implement `commitMerge(tree, ours, theirs)` with the fixed identity, `mergeBase(a, b)`, `fetchCommits(remote, base, heads)` by SHA into `refs/pr-conflict-radar/*` with `--no-tags --no-write-fetch-head`, unshallowing only a shallow clone, and `deleteRefs()`
+- [x] implement `changedFiles(base, head)` from `git diff --raw -z -M --no-abbrev`, returning status, path, previous path and both blob ids per file
+- [x] write tests: clean merge, textual conflict with the conflicted paths, rename plus edit, a path containing spaces, a default branch that is not `main`
+- [x] write failure tests: a missing ref and an unknown SHA are rejected by `verifyCommit` before any merge, the output parser rejects an exit 1 that carries no tree OID, unrelated histories throw, `fetchCommits` throws for a SHA the remote does not have
+- [x] write tests that `commitMerge` output can be merged again; that `fetchCommits` fetches a head that only `refs/pull/<n>/head` reaches, in a shallow and in a complete clone, creates only `refs/pr-conflict-radar/*` refs and moves no remote-tracking ref and creates no tag although the remote has a newer default branch and a tag; that `mergeBase` works after `fetchCommits` in a shallow clone; that `deleteRefs` leaves the ref list as it was before the fetch
+- [x] write tests for `changedFiles`: addition, deletion, modification, rename with edit, and paths that contain a space, a non-ASCII character, `"`, `\`, a tab and a line break, each returned byte for byte; and that a branch name or path made of shell metacharacters is handled as plain data
+- [x] run tests - must pass before task 4
+
+As built: every function of `lib/git.mjs` takes a trailing `{cwd, env}` options object (the repository directory and extra environment, the token's way in). `fetchCommits(remote, base, heads)` takes `heads` as `[{pr, sha}]`, resolves to `{base: ref, heads: {<pr>: ref}}`, and on a commit the remote does not serve throws a `GitError` naming the pull request, with its numbers in `missing`. `mergeBase` throws when there is no common ancestor. `changedFiles` entries are `{status, score, path, previousPath, oldMode, newMode, oldBlob, newBlob}`. A `GitError` carries a fixed message and the captured `stderr` as a property, for the caller to log through the log serializer. The fixture helper builds commits with plumbing directly in a bare remote, so no working tree is involved.
 
 ### Task 4: Merge order, pair simulation and the merge train
 
