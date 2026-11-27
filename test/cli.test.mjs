@@ -478,7 +478,9 @@ describe("build", () => {
   it("fails clearly for an entry without a build and for an unknown key", async () => {
     const s = scenario();
     const fake = fakeFor(s);
-    const noBuild = await run(s, fake, ["build", "go"]);
+    const noBuild = await run(s, fake, ["build", "fake"], {
+      registry: registry({ key: "fake", patterns: ["**/*.fake"] }),
+    });
     assert.equal(noBuild.code, 1);
     assert.match(noBuild.lines[1], /no build yet/);
     const unknown = await run(s, fake, ["build", "java"]);
