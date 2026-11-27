@@ -19,7 +19,7 @@ before(() => {
 after(() => rmSync(work, { recursive: true, force: true }));
 
 let counter = 0;
-const fixture = (name) => join(FIXTURES, name);
+const fixture = (name) => join(FIXTURES, `${name}.txt`);
 const range = (start, end = start) => ({ start, end });
 
 // Runs the registry's command for one request and resolves to

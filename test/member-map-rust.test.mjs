@@ -36,7 +36,7 @@ const skip = hasRustup || ci ? false : "skipped: rustup is not on the PATH";
 
 let work;
 let counter = 0;
-const fixture = (name) => join(FIXTURES, name);
+const fixture = (name) => join(FIXTURES, `${name}.txt`);
 const range = (start, end = start) => ({ start, end });
 
 function spawnStep(step) {
