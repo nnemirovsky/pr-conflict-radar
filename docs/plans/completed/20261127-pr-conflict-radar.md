@@ -1,6 +1,6 @@
 # pr-conflict-radar: the action
 
-Repository: `nnemirovsky/pr-conflict-radar`, default branch `main`, Apache-2.0. Branch: `feat/initial-action`; the whole plan is one branch and one pull request, opened only on the owner's word (see "Development Approach"). What needs that pull request merged first is in `docs/plans/20261127-pr-conflict-radar-rollout.md`. This plan is committed to the repository, so it names no other organisation, repository or person, with one exception: peerbus (`nnemirovsky/peerbus`), the open-source agent message bus the radar suggests.
+Repository: `nnemirovsky/pr-conflict-radar`, default branch `main`, Apache-2.0. Branch: `feat/initial-action`; the whole plan is one branch and one pull request, opened only on the owner's word (see "Development Approach"). What needs that pull request merged first is in `docs/plans/completed/20261127-pr-conflict-radar-rollout.md`. This plan is committed to the repository, so it names no other organisation, repository or person, with one exception: peerbus (`nnemirovsky/peerbus`), the open-source agent message bus the radar suggests.
 
 ## Overview
 
@@ -433,7 +433,7 @@ jobs:
 ## What Goes Where
 
 - **Implementation Steps**: everything that can be finished on the branch before any merge: the action, its tests, the examples, the workflows the repository runs on itself, CI, the docs, local verification.
-- **The rollout plan** (`docs/plans/20261127-pr-conflict-radar-rollout.md`): what needs the pull request merged: the end-to-end run on GitHub, its fixes, the required-checks baseline, preparing the first release.
+- **The rollout plan** (`docs/plans/completed/20261127-pr-conflict-radar-rollout.md`): what needs the pull request merged: the end-to-end run on GitHub, its fixes, the required-checks baseline, preparing the first release.
 - **Post-Completion**: the pull request itself, the first fork pull request, tuning the defaults.
 
 ## Implementation Steps
@@ -825,7 +825,7 @@ Verification before the merge is local. The trigger and scan workflows take effe
 - `ci.yml` runs on that pull request, since `pull_request` workflows come from the pull request itself. The trigger and scan workflows do not: `pull_request_target` uses the default branch's copy of a workflow file and `workflow_dispatch` needs the file on the default branch, and `main` has neither until the merge.
 
 **After the merge**
-- `docs/plans/20261127-pr-conflict-radar-rollout.md` takes over: the end-to-end run on GitHub, the fixes it calls for, the required-checks baseline and the preparation of `v0.1.0`.
+- `docs/plans/completed/20261127-pr-conflict-radar-rollout.md` takes over: the end-to-end run on GitHub, the fixes it calls for, the required-checks baseline and the preparation of `v0.1.0`.
 
 **To confirm when the chance comes**
 - The first pull request from a fork: that its check and comment land in the base repository, and that the trigger's `pull_request_target` run dispatched the scan. Until then the README lists it as unconfirmed.

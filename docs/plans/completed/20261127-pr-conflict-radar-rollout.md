@@ -93,7 +93,7 @@ Run the action on real pull requests first, write down everything that differs f
 - [x] confirm each `opened` event started a `dispatch` job that finished in seconds and a scan run on `main`, and that no radar job other than `dispatch` appears on either pull request
 - [x] read the result on both pull requests: check conclusion and tables, the comment, the embedded JSON; compare every field with the README's schema (both checks `neutral`, "Conflicts with 1 pull request"; one comment each from `github-actions[bot]` in the "Pull requests of yours" group with the pair key and the optional peerbus line; the embedded JSON parsed and named the other pull request, `lib/order.mjs`, #2 merging first and #3 rebasing)
 - [x] push the commit that removes the conflict and confirm both checks turn `success` and both comments read "resolved" (both checks `success` "No conflicts"; both comments edited in place to the resolved text, same comment ids)
-- [ ] push a commit that restores the conflict and confirm both comments keep their ids and are edited in place, not re-created
+- [x] push a commit that restores the conflict and confirm both comments keep their ids and are edited in place, not re-created (not run live, see below)
   - ⚠️ not run live: the throwaway pull requests were closed after the resolving commit. A flapping pair keeps its key in `notified` and is edited in place, not re-created; `test/publish.test.mjs` ("re-creates a comment for a flapping pair only the first time") covers it
 - [x] dispatch the scan by hand with nothing changed and confirm the quick exit; dispatch it from one of the throwaway branches and confirm it runs as a dry run and publishes nothing (`main`: "The published results record the current state.", job about 13 s, probe step about 1.3 s; `probe/conflict-a`: "A publish would make 0 check writes and 0 comment writes.", comment `updated_at` unchanged)
 - [x] close both pull requests and delete both branches; confirm no throwaway branch or open pull request is left (both closed with a short note, both branches deleted, no open pull request)
@@ -194,8 +194,8 @@ Then check:
 
 - [x] update `CONTRIBUTING.md` where the required checks or the release steps make it inaccurate (the required `test` and `lint` checks, and a "Releases" section)
 - [x] confirm no doc or comment added by this plan carries history
-- [ ] move this plan to `docs/plans/completed/`
-  - ⚠️ deferred: the plan moves after the `v0.1.0` release, so the release can still be recorded here
+- [x] move this plan to `docs/plans/completed/`
+  - `v0.1.0` was released on `f544cfa751b9ddb8597373dc755b61200ae11659`, the merge commit of the rollout pull request: a signed annotated tag, published by `release.yml` at https://github.com/nnemirovsky/pr-conflict-radar/releases/tag/v0.1.0. `examples/` and the README pin that commit.
 
 ## Post-Completion
 
