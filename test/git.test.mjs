@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import {
   assertGitVersion,
   changedFiles,
   commitMerge,
+  credentialEnv,
   deleteRefs,
   fetchCommits,
   findMergeBase,
@@ -16,6 +24,7 @@ import {
   parseGitVersion,
   parseMergeTree,
   parseRawDiff,
+  TOKEN_VARIABLE,
   verifyCommit,
 } from "../lib/git.mjs";
 import { createFixture } from "./fixture-repo.mjs";
@@ -401,6 +410,157 @@ describe("fetchCommits and deleteRefs", () => {
       /invalid revision argument/,
     );
     assert.ok(!readdirSync(cwd).includes("pwned"));
+  });
+});
+
+describe("credentialEnv", () => {
+  const TOKEN = "ghs_fixtureToken0123456789";
+
+  it("adds a credential helper scoped to the server's origin and the token in its own variable", () => {
+    const env = credentialEnv(TOKEN, "https://github.example/", {});
+    assert.equal(env.GIT_CONFIG_COUNT, "1");
+    assert.equal(env.GIT_CONFIG_KEY_0, "credential.https://github.example.helper");
+    assert.match(env.GIT_CONFIG_VALUE_0, /^!f\(\) \{ test "\$1" = get \|\| exit 0;/);
+    assert.ok(env.GIT_CONFIG_VALUE_0.includes(`${TOKEN_VARIABLE}`));
+    assert.ok(!env.GIT_CONFIG_VALUE_0.includes(TOKEN));
+    assert.equal(env[TOKEN_VARIABLE], TOKEN);
+  });
+
+  it("defaults to https://github.com", () => {
+    assert.equal(credentialEnv(TOKEN).GIT_CONFIG_KEY_0, "credential.https://github.com.helper");
+  });
+
+  it("appends after the command-scope config entries the environment already has", () => {
+    const env = credentialEnv(TOKEN, "https://github.com", { GIT_CONFIG_COUNT: "2" });
+    assert.equal(env.GIT_CONFIG_COUNT, "3");
+    assert.equal(env.GIT_CONFIG_KEY_2, "credential.https://github.com.helper");
+    assert.equal(env.GIT_CONFIG_KEY_0, undefined);
+  });
+
+  it("adds nothing for a token that is not one printable word or a server that is not http", () => {
+    assert.deepEqual(credentialEnv(`${TOKEN}\nurl=https://elsewhere.example`), {});
+    assert.deepEqual(credentialEnv(""), {});
+    assert.deepEqual(credentialEnv(undefined), {});
+    assert.deepEqual(credentialEnv(TOKEN, "file:///tmp/remote.git"), {});
+    assert.deepEqual(credentialEnv(TOKEN, "not a url"), {});
+    assert.deepEqual(credentialEnv(TOKEN, "https://github.com", { GIT_CONFIG_COUNT: "x" }), {});
+  });
+});
+
+describe("fetchCommits over HTTP", () => {
+  const TOKEN = "ghs_fixtureToken0123456789";
+  const encoded = (secret) => Buffer.from(`x-access-token:${secret}`).toString("base64");
+  const tokenHeader = `Basic ${encoded(TOKEN)}`;
+  // The header `actions/checkout` persists, in its spelling.
+  const checkoutHeader = `basic ${encoded("checkout-token")}`;
+  const fixture = createFixture();
+  let base;
+  let pull12;
+  let server;
+  let files = 0;
+  before(async () => {
+    base = fixture.commit({ branch: "main", files: { "a.txt": lines() } });
+    pull12 = fixture.commit({ parent: base, files: { "a.txt": lines({ 1: "twelve" }) } });
+    fixture.publishPull(12, pull12);
+    server = await fixture.serve({ accept: [tokenHeader, checkoutHeader] });
+  });
+  after(async () => {
+    await server.close();
+    fixture.cleanup();
+  });
+
+  // A clone whose origin is the HTTP server, with no credentials configured.
+  function httpClone() {
+    const cwd = fixture.clone();
+    fixture.git(["remote", "set-url", "origin", server.url], { cwd });
+    server.requests.length = 0;
+    return cwd;
+  }
+  const heads = () => [{ pr: 12, sha: pull12 }];
+  const options = (cwd, extra = {}) => ({ cwd, serverUrl: server.origin, ...extra });
+
+  it("fails when the checkout configured no credentials and no token is given", async () => {
+    const cwd = httpClone();
+    await assert.rejects(fetchCommits("origin", base, heads(), { cwd }), (error) => {
+      assert.ok(isGitError(error));
+      assert.match(error.stderr, /could not read Username/);
+      return true;
+    });
+  });
+
+  it("authenticates with the token when the checkout configured no credentials", async () => {
+    const cwd = httpClone();
+    await fetchCommits("origin", base, heads(), options(cwd, { token: TOKEN }));
+    assert.equal(await verifyCommit(pull12, { cwd }), pull12);
+    const sent = server.requests.map((request) => request.authorization);
+    assert.ok(sent.some((headers) => headers.length === 1 && headers[0] === tokenHeader));
+    for (const headers of sent) assert.ok(headers.length <= 1, "never two Authorization headers");
+  });
+
+  const checkoutConfigs = {
+    "the repository config": (cwd) => {
+      const key = `http.${server.origin}/.extraheader`;
+      fixture.git(["config", key, `AUTHORIZATION: ${checkoutHeader}`], { cwd });
+    },
+    "a file the repository config includes": (cwd) => {
+      files += 1;
+      const file = join(fixture.dir, `credentials-${files}.config`);
+      const section = `[http "${server.origin}/"]`;
+      writeFileSync(file, `${section}\n\textraheader = AUTHORIZATION: ${checkoutHeader}\n`);
+      fixture.git(["config", `includeIf.gitdir:${join(cwd, ".git")}.path`, file], { cwd });
+    },
+  };
+  for (const [where, configure] of Object.entries(checkoutConfigs)) {
+    it(`keeps the checkout's own Authorization header in ${where} and sends no second one`, async () => {
+      const cwd = httpClone();
+      configure(cwd);
+      await fetchCommits("origin", base, heads(), options(cwd, { token: TOKEN }));
+      assert.equal(await verifyCommit(pull12, { cwd }), pull12);
+      assert.ok(server.requests.length > 0);
+      for (const request of server.requests) {
+        assert.deepEqual(request.authorization, [checkoutHeader]);
+      }
+    });
+  }
+
+  it("keeps the token out of every argument, the error, the trace and the repository config", async () => {
+    const forms = (secret) => [secret, encoded(secret), Buffer.from(secret).toString("base64")];
+    const leaks = (text, secret) => forms(secret).filter((form) => text.includes(form));
+    const configOf = (cwd) => readFileSync(join(cwd, ".git", "config"), "utf8");
+
+    const cwd = httpClone();
+    const trace = join(fixture.dir, "trace-accepted");
+    await fetchCommits(
+      "origin",
+      base,
+      heads(),
+      options(cwd, { token: TOKEN, env: { GIT_TRACE: trace } }),
+    );
+    const traced = readFileSync(trace, "utf8");
+    assert.match(traced, /; f get/, "the trace shows the helper ran");
+    assert.deepEqual(leaks(traced, TOKEN), []);
+    assert.deepEqual(leaks(configOf(cwd), TOKEN), []);
+
+    const refused = "ghs_refusedToken9876543210";
+    const other = httpClone();
+    const refusedTrace = join(fixture.dir, "trace-refused");
+    await assert.rejects(
+      fetchCommits(
+        "origin",
+        base,
+        heads(),
+        options(other, { token: refused, env: { GIT_TRACE: refusedTrace } }),
+      ),
+      (error) => {
+        assert.ok(isGitError(error));
+        assert.match(error.stderr, /Authentication failed/);
+        const { message, args, stderr } = error;
+        assert.deepEqual(leaks(JSON.stringify({ message, args, stderr }), refused), []);
+        return true;
+      },
+    );
+    assert.deepEqual(leaks(readFileSync(refusedTrace, "utf8"), refused), []);
+    assert.deepEqual(leaks(configOf(other), refused), []);
   });
 });
 

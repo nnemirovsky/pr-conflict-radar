@@ -6,8 +6,9 @@
 // system file, so no hooks, signing or default-branch setting of the machine
 // applies), a fixed identity and increasing fixed dates.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -119,6 +120,93 @@ export function createFixture({ defaultBranch = "main" } = {}) {
     return out === "" ? [] : out.split("\n");
   }
 
+  // Serves the remote over smart HTTP on a loopback port through `git
+  // http-backend`. A request is served only when it carries exactly one
+  // Authorization header and that header is in `accept`; one without the
+  // header gets 401 with a Basic challenge, as GitHub answers for a private
+  // repository, and one with two headers gets 400. Resolves to `{url, origin,
+  // requests, close}`: `url` is the remote's address, and `requests` records
+  // each request as `{method, path, authorization}` with every Authorization
+  // header it carried.
+  function serve({ accept = [] } = {}) {
+    const requests = [];
+    const server = createServer((req, res) => {
+      const chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        const authorization = [];
+        for (let i = 0; i < req.rawHeaders.length; i += 2) {
+          if (req.rawHeaders[i].toLowerCase() === "authorization") {
+            authorization.push(req.rawHeaders[i + 1]);
+          }
+        }
+        const target = new URL(req.url, "http://127.0.0.1");
+        requests.push({ method: req.method, path: target.pathname, authorization });
+        if (authorization.length > 1) {
+          res.writeHead(400);
+          res.end();
+          return;
+        }
+        if (authorization.length === 0 || !accept.includes(authorization[0])) {
+          res.writeHead(401, { "WWW-Authenticate": 'Basic realm="fixture"' });
+          res.end();
+          return;
+        }
+        const body = Buffer.concat(chunks);
+        const child = spawn("git", ["http-backend"], {
+          env: {
+            ...process.env,
+            ...BASE_ENV,
+            GIT_PROJECT_ROOT: dir,
+            GIT_HTTP_EXPORT_ALL: "1",
+            PATH_INFO: target.pathname,
+            QUERY_STRING: target.search.slice(1),
+            REQUEST_METHOD: req.method,
+            CONTENT_TYPE: req.headers["content-type"] ?? "",
+            CONTENT_LENGTH: String(body.length),
+            HTTP_CONTENT_ENCODING: req.headers["content-encoding"] ?? "",
+            HTTP_GIT_PROTOCOL: req.headers["git-protocol"] ?? "",
+            REMOTE_ADDR: "127.0.0.1",
+          },
+          stdio: ["pipe", "pipe", "ignore"],
+        });
+        const out = [];
+        child.stdout.on("data", (chunk) => out.push(chunk));
+        child.on("close", () => {
+          const response = Buffer.concat(out);
+          const end = response.indexOf("\r\n\r\n");
+          let status = 200;
+          const headers = {};
+          for (const line of response.subarray(0, end).toString("latin1").split("\r\n")) {
+            const colon = line.indexOf(":");
+            const name = line.slice(0, colon);
+            const value = line.slice(colon + 1).trim();
+            if (name.toLowerCase() === "status") status = Number.parseInt(value, 10);
+            else headers[name] = value;
+          }
+          res.writeHead(status, headers);
+          res.end(response.subarray(end + 4));
+        });
+        child.stdin.end(body);
+      });
+    });
+    return new Promise((resolveServer) => {
+      server.listen(0, "127.0.0.1", () => {
+        const origin = `http://127.0.0.1:${server.address().port}`;
+        resolveServer({
+          url: `${origin}/remote.git`,
+          origin,
+          requests,
+          close: () =>
+            new Promise((done) => {
+              server.close(done);
+              server.closeAllConnections();
+            }),
+        });
+      });
+    });
+  }
+
   function cleanup() {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -135,6 +223,7 @@ export function createFixture({ defaultBranch = "main" } = {}) {
     tag,
     clone,
     refs,
+    serve,
     cleanup,
   };
 }

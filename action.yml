@@ -4,8 +4,9 @@ description: Predicts conflicts between open pull requests, and between pull req
 inputs:
   token:
     description: >-
-      Token for the GitHub API. It has to be able to create check runs: the workflow token and a
-      GitHub App installation token can, a personal access token cannot.
+      Token for the GitHub API, and for git's fetch when the checkout configured no credentials. It
+      has to be able to create check runs: the workflow token and a GitHub App installation token
+      can, a personal access token cannot.
     default: ${{ github.token }}
   config:
     description: Path of the optional config file, relative to the workspace.

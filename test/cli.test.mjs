@@ -470,6 +470,22 @@ describe("prepare", () => {
     const result = await run(s, fake, ["prepare"]);
     assert.equal(result.outputs.go, "false");
   });
+
+  it("fetches with the token from a server that needs credentials the checkout did not configure", async () => {
+    const s = scenario();
+    const fake = fakeFor(s);
+    const tokenHeader = `Basic ${Buffer.from(`x-access-token:${TOKEN}`).toString("base64")}`;
+    const server = await s.fx.serve({ accept: [tokenHeader] });
+    cleanups.push(() => server.close());
+    s.fx.git(["remote", "set-url", "origin", server.url], { cwd: s.clone });
+
+    const result = await run(s, fake, ["prepare"], { env: { GITHUB_SERVER_URL: server.origin } });
+    assert.equal(result.code, 0, result.output);
+    assert.ok(server.requests.some((request) => request.authorization[0] === tokenHeader));
+    assert.ok(!result.output.includes(TOKEN));
+    const config = readFileSync(join(s.clone, ".git", "config"), "utf8");
+    assert.ok(!config.includes(TOKEN) && !config.includes(tokenHeader.slice(6)));
+  });
 });
 
 describe("build", () => {

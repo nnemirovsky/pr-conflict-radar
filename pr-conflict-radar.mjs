@@ -27,6 +27,7 @@ import { annotation, logLine } from "./lib/escape.mjs";
 import {
   assertGitVersion,
   changedFiles,
+  DEFAULT_SERVER_URL,
   deleteRefs,
   fetchCommits,
   findMergeBase,
@@ -260,7 +261,13 @@ export async function main(argv, options = {}) {
       const state = await client.readState(config);
       const { selected } = selectPrs(state.pulls, config, state.base.ref);
       const heads = selected.map((pull) => ({ pr: pull.number, sha: pull.headRefOid }));
-      const refs = await fetchCommits("origin", state.base.sha, heads, gitOptions);
+      // The fetch authenticates with the token when the checkout configured no
+      // credentials for the server of its own.
+      const refs = await fetchCommits("origin", state.base.sha, heads, {
+        ...gitOptions,
+        token,
+        serverUrl: env.GITHUB_SERVER_URL || DEFAULT_SERVER_URL,
+      });
       const paths = [];
       for (const pull of selected) {
         // A head that shares no history with the base is not simulated.

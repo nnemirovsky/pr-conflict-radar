@@ -118,13 +118,15 @@ Permissions:
 
 The runner needs Node.js 20 or newer and git 2.38 or newer. GitHub-hosted runners have both. The action checks them and fails with a message if they are missing.
 
+The scan fetches the default branch's head commit and each pull request's head commit by SHA from the checkout's `origin` remote, so git needs read access to the repository. It uses the credentials the checkout step configured. When there are none, as with `persist-credentials: false`, git authenticates with the `token` input instead, which then also needs `contents: read`. A checkout without credentials works for a public repository either way.
+
 **Never make the radar's check a required check.** It is `neutral` on a finding on purpose. It is also a snapshot of a moving state: a result can be stale for a minute after a push. Making it required would turn a hint into a blocker.
 
 ### The inputs
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `token` | `${{ github.token }}` | Token for the GitHub API. It has to be able to create check runs |
+| `token` | `${{ github.token }}` | Token for the GitHub API, and for git's fetch when the checkout configured no credentials. It has to be able to create check runs |
 | `config` | `.github/pr-conflict-radar.json` | Path of the optional config file, relative to the workspace |
 | `dry-run` | `false` | Print the results and the writes a publish would make, and publish nothing |
 | `force` | `false` | Scan even when the published results already record the current state |
@@ -368,7 +370,7 @@ The mapper parses each file alone, without its headers, with these limits:
 
 - The scan never checks out, installs, builds, imports or runs anything from a pull request. Pull request content is fetched as git objects and parsed as data.
 - Everything the scan reads comes from the default branch's copy of the workflow and config.
-- The token reaches only the GitHub client and git, through the environment, and is never printed. The action publishes only to the repository the workflow runs in.
+- The token reaches only the GitHub client and git, through the environment, and is never printed. Git gets it only for the fetch, through a credential helper that the fetch's environment configures and that git asks only when the server refuses a request without credentials, so it is never an argument and never written to the git config. The action publishes only to the repository the workflow runs in.
 - **Escaping.** Text that a pull request controls (file paths, member names, labels, author logins) enters a check, a comment or the job summary through one function. It removes control, format and line-separator characters, writes every ASCII character except letters, digits, space, `/` and `-` as a character reference, defuses `@`, and wraps the result in `<code>`. No link, image, emphasis, mention or issue reference forms from it, and a table keeps its shape. The only link the action writes is the peerbus link, a constant. The read query takes neither the title nor the branch name of a pull request, so neither reaches any output.
 - **Logs.** Everything the action prints that can carry pull request text goes through one serializer: one JSON value on one line, with `#` written as `#`. Neither workflow-command form of the runner can occur in it. Child processes never write to the job log themselves.
 - **Files.** Nothing derived from pull request content is written outside the repository's git directory and the runner's temp directory. The toolchain installs write where their tools put them, from this action's own files and from packages its lockfiles and hashes pin.
