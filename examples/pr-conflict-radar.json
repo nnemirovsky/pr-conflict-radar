@@ -1,0 +1,103 @@
+{
+  "checkName": "PR conflict radar",
+  "classes": [
+    {
+      "name": "docs",
+      "patterns": ["**/*.md"]
+    },
+    {
+      "name": "tests",
+      "patterns": ["**/test/**", "**/tests/**", "**/*.test.*", "**/*.spec.*"]
+    },
+    {
+      "name": "code",
+      "patterns": ["**"]
+    }
+  ],
+  "severity": ["docs", "tests", "code"],
+  "commentClasses": ["tests", "code"],
+  "order": {
+    "labelPriority": []
+  },
+  "pairKey": "conflict/{repo}/{low}+{high}",
+  "suggestPeerbus": true,
+  "members": {
+    "typescript": {
+      "enabled": "auto",
+      "patterns": [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.mts",
+        "**/*.cts",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs"
+      ]
+    },
+    "csharp": {
+      "enabled": "auto",
+      "patterns": ["**/*.cs"]
+    },
+    "go": {
+      "enabled": "auto",
+      "patterns": ["**/*.go"]
+    },
+    "rust": {
+      "enabled": "auto",
+      "patterns": ["**/*.rs"]
+    },
+    "cpp": {
+      "enabled": "auto",
+      "patterns": [
+        "**/*.c",
+        "**/*.h",
+        "**/*.cc",
+        "**/*.cpp",
+        "**/*.cxx",
+        "**/*.hh",
+        "**/*.hpp",
+        "**/*.hxx"
+      ],
+      "defines": []
+    },
+    "ignoreNames": [
+      "Name",
+      "Value",
+      "Count",
+      "Items",
+      "Type",
+      "Data",
+      "Result",
+      "Error",
+      "Message",
+      "Instance",
+      "Create",
+      "Init",
+      "Start",
+      "Stop",
+      "Dispose",
+      "ToString",
+      "Equals",
+      "GetHashCode",
+      "props",
+      "state",
+      "children",
+      "className",
+      "onChange",
+      "onClick",
+      "value",
+      "label",
+      "title",
+      "data",
+      "error",
+      "loading",
+      "index",
+      "render",
+      "default"
+    ],
+    "minNameLength": 4,
+    "maxFileBytes": 1000000
+  },
+  "maxPrs": 40
+}

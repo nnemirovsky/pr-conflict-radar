@@ -1,0 +1,159 @@
+name: PR conflict radar
+description: Predicts conflicts between open pull requests, and between pull requests and the default branch, before they merge. Never blocks and never runs pull request code.
+
+inputs:
+  token:
+    description: >-
+      Token for the GitHub API, and for git's fetch when the checkout configured no credentials. It
+      has to be able to create check runs: the workflow token and a GitHub App installation token
+      can, a personal access token cannot.
+    default: ${{ github.token }}
+  config:
+    description: Path of the optional config file, relative to the workspace.
+    default: .github/pr-conflict-radar.json
+  dry-run:
+    description: Print the results and the writes a publish would make, and publish nothing.
+    default: "false"
+  force:
+    description: Scan even when the published results already record the current state.
+    default: "false"
+
+outputs:
+  changed:
+    description: Whether anything changed since the last scan, so that a scan ran.
+    value: ${{ steps.probe.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check Node.js and git
+      shell: bash
+      run: |
+        if ! command -v node >/dev/null 2>&1; then
+          echo "::error::pr-conflict-radar needs Node.js 20 or newer on the runner."
+          exit 1
+        fi
+        node_major=$(node -p 'process.versions.node.split(".")[0]')
+        if [ "$node_major" -lt 20 ]; then
+          echo "::error::pr-conflict-radar needs Node.js 20 or newer on the runner."
+          exit 1
+        fi
+        if ! command -v git >/dev/null 2>&1; then
+          echo "::error::pr-conflict-radar needs git 2.38 or newer on the runner."
+          exit 1
+        fi
+        git_version=$(git --version | awk '{print $3}')
+        if [ "$(printf '%s\n' 2.38 "$git_version" | sort -V | head -n 1)" != "2.38" ]; then
+          echo "::error::pr-conflict-radar needs git 2.38 or newer on the runner."
+          exit 1
+        fi
+
+    - id: probe
+      name: Probe
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CONFIG: ${{ inputs.config }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        FORCE: ${{ inputs.force }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        args=(--config "$CONFIG")
+        [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+        [ "$FORCE" = "true" ] && args+=(--force)
+        node "$ACTION_PATH/pr-conflict-radar.mjs" probe "${args[@]}"
+
+    - id: prepare
+      name: Prepare
+      if: steps.probe.outputs.changed == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CONFIG: ${{ inputs.config }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" prepare --config "$CONFIG"
+
+    - id: build-typescript
+      name: Build the TypeScript member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.typescript == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build typescript
+
+    - name: Set up .NET
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.csharp == 'true'
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Cache NuGet packages
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.csharp == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ github.action_ref }}
+
+    - id: build-csharp
+      name: Build the C# member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.csharp == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build csharp
+
+    - name: Set up Go
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.go == 'true'
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ github.action_path }}/members/go/go.mod
+        cache: false
+
+    - id: build-go
+      name: Build the Go member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.go == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build go
+
+    - id: build-rust
+      name: Build the Rust member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.rust == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build rust
+
+    - name: Set up Python
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.cpp == 'true'
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - id: build-cpp
+      name: Build the C and C++ member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.cpp == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build cpp
+
+    - id: scan
+      name: Scan
+      if: steps.probe.outputs.changed == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CONFIG: ${{ inputs.config }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        args=(--config "$CONFIG")
+        [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+        node "$ACTION_PATH/pr-conflict-radar.mjs" scan "${args[@]}"

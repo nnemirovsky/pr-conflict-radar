@@ -1,0 +1,320 @@
+// One entry per member-overlap language, in registry order. An entry holds
+// everything language-specific: its config key (also the name of its `prepare`
+// output), its default patterns and any extra config option of its own. The
+// config loader, `prepare`, the scan and the tests read this list, so a new
+// language is a new entry here, a mapper directory and its test file.
+//
+// An option is `{default, validate(value, field)}`; `validate` returns `null`
+// for a valid value and otherwise a message that names `field`.
+//
+// An entry whose mapper exists also holds `build({dir, work, env})`, the steps
+// that prepare the mapper (see `lib/members.mjs`), and
+// `run({dir, work, env, request, maxFileBytes, defines})`, the one command that
+// maps a request file. Both return commands as argument arrays, never shell
+// text. `dir` is the mapper's directory (the action's own `members/<key>` by
+// default).
+
+import { mkdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { devNull } from "node:os";
+import { join } from "node:path";
+
+// A `members.cpp.defines` entry: an object-like macro `NAME` or a function-like
+// macro used as a declaration, `NAME(...)`.
+export const DEFINE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*(\(\.\.\.\))?$/;
+export const MAX_DEFINES = 200;
+
+function validateDefines(value, field) {
+  if (!Array.isArray(value)) return `${field} must be a list of macro names`;
+  if (value.length > MAX_DEFINES) {
+    return `${field} has ${value.length} entries, at most ${MAX_DEFINES} are allowed`;
+  }
+  for (const [i, entry] of value.entries()) {
+    if (typeof entry !== "string" || !DEFINE_PATTERN.test(entry)) {
+      return `${field}[${i}] ${JSON.stringify(entry)} must be NAME or NAME(...)`;
+    }
+  }
+  return null;
+}
+
+// The directory that holds `package.json` for a mapper directory `dir`
+// (`<action>/members/<key>`).
+function actionDirOf(dir) {
+  return join(dir, "..", "..");
+}
+
+function typescriptResolves(actionDir) {
+  try {
+    createRequire(join(actionDir, "package.json")).resolve("typescript");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildTypescript({ dir, env }) {
+  const cwd = actionDirOf(dir);
+  if (typescriptResolves(cwd)) return [];
+  return [
+    {
+      command: "npm",
+      args: ["ci", "--omit=dev", "--ignore-scripts"],
+      cwd,
+      env: {
+        ...env,
+        npm_config_audit: "false",
+        npm_config_fund: "false",
+        npm_config_update_notifier: "false",
+      },
+    },
+  ];
+}
+
+function runTypescript({ dir, work, env, request, maxFileBytes }) {
+  return {
+    command: process.execPath,
+    args: [join(dir, "member-map.mjs"), request, String(maxFileBytes)],
+    cwd: work ?? dir,
+    env,
+  };
+}
+
+const DOTNET_ENV = {
+  DOTNET_NOLOGO: "1",
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1",
+};
+
+function buildCsharp({ dir, env }) {
+  return [
+    {
+      command: "dotnet",
+      args: ["build", "MemberMap.cs"],
+      cwd: dir,
+      env: { ...env, ...DOTNET_ENV },
+    },
+  ];
+}
+
+function runCsharp({ dir, env, request, maxFileBytes }) {
+  return {
+    command: "dotnet",
+    args: ["run", "--no-build", "MemberMap.cs", "--", request, String(maxFileBytes)],
+    cwd: dir,
+    env: { ...env, ...DOTNET_ENV },
+  };
+}
+
+// Go variables that survive into the build; every other `GO*` variable of the
+// job (`GOFLAGS`, `GOENV`, `GOWORK`, `GOTOOLCHAIN`, ...) is dropped so neither a
+// parent `go.work`, a `GOENV` file nor the job's flags apply.
+const GO_KEPT = new Set(["GOROOT", "GOPATH", "GOCACHE", "GOMODCACHE"]);
+const GO_VARIABLE = /^GO[A-Z0-9]+$/;
+
+function goBuildEnv(env) {
+  const out = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (GO_VARIABLE.test(name) && !GO_KEPT.has(name)) continue;
+    out[name] = value;
+  }
+  return {
+    ...out,
+    GOWORK: "off",
+    GOENV: "off",
+    GOFLAGS: "",
+    GOTOOLCHAIN: "local",
+    CGO_ENABLED: "0",
+  };
+}
+
+function goBinary(work) {
+  return join(work, process.platform === "win32" ? "member-map-go.exe" : "member-map-go");
+}
+
+function buildGo({ dir, work, env }) {
+  return [
+    {
+      command: "go",
+      args: ["build", "-o", goBinary(work), "."],
+      cwd: dir,
+      env: goBuildEnv(env),
+    },
+  ];
+}
+
+function runGo({ work, env, request, maxFileBytes }) {
+  return { command: goBinary(work), args: [request, String(maxFileBytes)], cwd: work, env };
+}
+
+// Cargo and rustup variables that survive into the build: `CARGO_HOME` only.
+// Every other `CARGO_*`, `RUSTC*`, `RUSTDOC*`, `RUSTFLAGS` and
+// `RUSTUP_TOOLCHAIN` variable of the job is dropped, so neither the job's flags
+// nor a wrapper nor a toolchain override applies.
+const RUST_VARIABLE = /^(CARGO_.*|RUSTC.*|RUSTDOC.*|RUSTFLAGS|RUSTUP_TOOLCHAIN)$/;
+
+function rustBinary(work) {
+  return join(
+    work,
+    "cargo-target",
+    "release",
+    process.platform === "win32" ? "member-map.exe" : "member-map",
+  );
+}
+
+// The `channel` of the mapper's `rust-toolchain.toml`, its one toolchain pin.
+function rustChannel(dir) {
+  const text = readFileSync(join(dir, "rust-toolchain.toml"), "utf8");
+  const match = /^\s*channel\s*=\s*"([^"]+)"/m.exec(text);
+  if (!match) throw new Error(`${join(dir, "rust-toolchain.toml")} has no channel`);
+  return match[1];
+}
+
+// Both steps run from an empty directory of the work directory, so no
+// `.cargo/config.toml` or `rust-toolchain.toml` of a directory above the action
+// applies; the manifest's own `[workspace]` stops a parent workspace.
+function buildRust({ dir, work, env }) {
+  const channel = rustChannel(dir);
+  const cwd = join(work, "rust-build");
+  mkdirSync(cwd, { recursive: true });
+  const clean = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (RUST_VARIABLE.test(name) && name !== "CARGO_HOME") continue;
+    clean[name] = value;
+  }
+  const stepEnv = {
+    ...clean,
+    RUSTUP_TOOLCHAIN: channel,
+    CARGO_TARGET_DIR: join(work, "cargo-target"),
+  };
+  return [
+    {
+      command: "rustup",
+      args: ["toolchain", "install", channel, "--profile", "minimal", "--no-self-update"],
+      cwd,
+      env: stepEnv,
+    },
+    {
+      command: "cargo",
+      args: ["build", "--release", "--locked", "--manifest-path", join(dir, "Cargo.toml")],
+      cwd,
+      env: stepEnv,
+    },
+  ];
+}
+
+function runRust({ work, env, request, maxFileBytes }) {
+  return { command: rustBinary(work), args: [request, String(maxFileBytes)], cwd: work, env };
+}
+
+// pip and Python variables of the job are dropped and pip reads no config
+// file, so neither a `PIP_TARGET`, a `PIP_USER` nor an index setting of the
+// job redirects the install; `-I` keeps `PYTHON*` variables, the working
+// directory and the script's directory away from the interpreter.
+const PYTHON_VARIABLE = /^(PIP_|PYTHON)/;
+
+function venvPython(work) {
+  return process.platform === "win32"
+    ? join(work, "cpp-venv", "Scripts", "python.exe")
+    : join(work, "cpp-venv", "bin", "python");
+}
+
+function buildCpp({ dir, work, env }) {
+  const clean = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (PYTHON_VARIABLE.test(name)) continue;
+    clean[name] = value;
+  }
+  const stepEnv = {
+    ...clean,
+    PIP_CONFIG_FILE: devNull,
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
+    PIP_NO_INPUT: "1",
+  };
+  return [
+    {
+      command: process.platform === "win32" ? "python" : "python3",
+      args: ["-I", "-m", "venv", join(work, "cpp-venv")],
+      cwd: work,
+      env: stepEnv,
+    },
+    {
+      command: venvPython(work),
+      args: [
+        "-I",
+        "-m",
+        "pip",
+        "install",
+        "--require-hashes",
+        "--only-binary",
+        ":all:",
+        "--no-deps",
+        "-r",
+        join(dir, "requirements.txt"),
+      ],
+      cwd: work,
+      env: stepEnv,
+    },
+  ];
+}
+
+// `defines` is the path of a JSON file holding the validated
+// `members.cpp.defines` list; without it the mapper defines nothing.
+function runCpp({ dir, work, env, request, maxFileBytes, defines }) {
+  const args = ["-I", join(dir, "member_map.py"), request, String(maxFileBytes)];
+  if (defines !== undefined) args.push(defines);
+  return { command: venvPython(work), args, cwd: work, env };
+}
+
+export const registry = Object.freeze([
+  Object.freeze({
+    key: "typescript",
+    build: buildTypescript,
+    run: runTypescript,
+    patterns: Object.freeze([
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.mts",
+      "**/*.cts",
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.mjs",
+      "**/*.cjs",
+    ]),
+  }),
+  Object.freeze({
+    key: "csharp",
+    build: buildCsharp,
+    run: runCsharp,
+    patterns: Object.freeze(["**/*.cs"]),
+  }),
+  Object.freeze({
+    key: "go",
+    build: buildGo,
+    run: runGo,
+    patterns: Object.freeze(["**/*.go"]),
+  }),
+  Object.freeze({
+    key: "rust",
+    build: buildRust,
+    run: runRust,
+    patterns: Object.freeze(["**/*.rs"]),
+  }),
+  Object.freeze({
+    key: "cpp",
+    build: buildCpp,
+    run: runCpp,
+    patterns: Object.freeze([
+      "**/*.c",
+      "**/*.h",
+      "**/*.cc",
+      "**/*.cpp",
+      "**/*.cxx",
+      "**/*.hh",
+      "**/*.hpp",
+      "**/*.hxx",
+    ]),
+    options: Object.freeze({
+      defines: Object.freeze({ default: Object.freeze([]), validate: validateDefines }),
+    }),
+  }),
+]);

@@ -8,3 +8,31 @@ updates:
       github-actions:
         patterns: ["*"]
         update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    ignore:
+      # typescript 7 drops the compiler API the TypeScript mapper uses.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/members/rust"
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: rust-toolchain
+    directory: "/members/rust"
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: "/members/cpp"
+    schedule:
+      interval: weekly

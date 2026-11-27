@@ -1,0 +1,26 @@
+{
+  "name": "pr-conflict-radar",
+  "version": "0.1.0",
+  "description": "GitHub Action that predicts conflicts between open pull requests before they merge",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nnemirovsky/pr-conflict-radar.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.9",
+    "yaml": "^2.9.1"
+  },
+  "dependencies": {
+    "typescript": "6.0.3"
+  }
+}

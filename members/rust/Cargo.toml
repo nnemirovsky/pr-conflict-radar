@@ -1,0 +1,16 @@
+[package]
+name = "member-map"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+quote = "=1.0.47"
+serde_json = "=1.0.154"
+syn = { version = "=3.0.10", default-features = false, features = ["full", "parsing", "printing"] }
+
+[profile.release]
+opt-level = 2

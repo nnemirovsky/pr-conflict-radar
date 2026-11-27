@@ -1,0 +1,148 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+import { parse } from "yaml";
+
+const action = parse(readFileSync(new URL("../action.yml", import.meta.url), "utf8"));
+const steps = action.runs.steps;
+const step = (id) => steps.find((candidate) => candidate.id === id);
+// A GitHub expression, built so the string holds no template placeholder.
+const expr = (body) => `$\{{ ${body} }}`;
+const GATE = "steps.probe.outputs.changed == 'true'";
+
+describe("action.yml", () => {
+  it("is a composite action", () => {
+    assert.equal(action.runs.using, "composite");
+  });
+
+  it("declares the documented inputs and the changed output", () => {
+    assert.deepEqual(Object.keys(action.inputs).sort(), ["config", "dry-run", "force", "token"]);
+    assert.equal(action.inputs.token.default, expr("github.token"));
+    assert.equal(action.inputs.config.default, ".github/pr-conflict-radar.json");
+    assert.equal(action.inputs["dry-run"].default, "false");
+    assert.equal(action.inputs.force.default, "false");
+    assert.deepEqual(Object.keys(action.outputs), ["changed"]);
+    assert.equal(action.outputs.changed.value, expr("steps.probe.outputs.changed"));
+  });
+
+  it("runs probe, prepare and scan in that order, after the version checks", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    assert.deepEqual(ids, [
+      undefined,
+      "probe",
+      "prepare",
+      "build-typescript",
+      undefined,
+      undefined,
+      "build-csharp",
+      undefined,
+      "build-go",
+      "build-rust",
+      undefined,
+      "build-cpp",
+      "scan",
+    ]);
+    assert.match(steps[0].run, /Node\.js 20/);
+    assert.match(steps[0].run, /git 2\.38/);
+  });
+
+  it("lets the scan run after a failed mapper build, which takes the mapper-failure path", () => {
+    const builds = steps.filter((candidate) => candidate.id?.startsWith("build-"));
+    assert.equal(builds.length, 5);
+    for (const build of builds) assert.equal(build["continue-on-error"], true, build.id);
+    for (const other of steps.filter((candidate) => !builds.includes(candidate))) {
+      assert.equal(other["continue-on-error"], undefined, other.name ?? other.id);
+    }
+  });
+
+  it("runs prepare and scan only when changed, and probe always", () => {
+    assert.equal(step("probe").if, undefined);
+    assert.equal(step("prepare").if, GATE);
+    assert.equal(step("scan").if, GATE);
+  });
+
+  it("builds the TypeScript mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    assert.ok(ids.indexOf("prepare") < ids.indexOf("build-typescript"));
+    assert.ok(ids.indexOf("build-typescript") < ids.indexOf("scan"));
+    assert.equal(
+      step("build-typescript").if,
+      `${GATE} && steps.prepare.outputs.typescript == 'true'`,
+    );
+    assert.match(step("build-typescript").run, /pr-conflict-radar\.mjs" build typescript$/);
+    assert.equal(step("build-typescript").env.ACTION_PATH, expr("github.action_path"));
+  });
+
+  it("sets up .NET, caches NuGet and builds the C# mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    const gate = `${GATE} && steps.prepare.outputs.csharp == 'true'`;
+    const dotnet = steps.find((candidate) => candidate.uses?.startsWith("actions/setup-dotnet@v6"));
+    const cache = steps.find((candidate) => candidate.uses?.startsWith("actions/cache@v6"));
+    assert.ok(dotnet && cache);
+    assert.equal(dotnet.if, gate);
+    assert.equal(cache.if, gate);
+    assert.match(cache.with.path, /\.nuget\/packages/);
+    assert.equal(step("build-csharp").if, gate);
+    assert.match(step("build-csharp").run, /pr-conflict-radar\.mjs" build csharp$/);
+    assert.equal(step("build-csharp").env.ACTION_PATH, expr("github.action_path"));
+    const at = (candidate) => steps.indexOf(candidate);
+    assert.ok(ids.indexOf("prepare") < at(dotnet));
+    assert.ok(at(dotnet) < at(cache));
+    assert.ok(at(cache) < ids.indexOf("build-csharp"));
+    assert.ok(ids.indexOf("build-csharp") < ids.indexOf("scan"));
+  });
+
+  it("sets up Go and builds the Go mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    const gate = `${GATE} && steps.prepare.outputs.go == 'true'`;
+    const go = steps.find((candidate) => candidate.uses?.startsWith("actions/setup-go@v7"));
+    assert.ok(go);
+    assert.equal(go.if, gate);
+    assert.equal(go.with["go-version-file"], `${expr("github.action_path")}/members/go/go.mod`);
+    assert.equal(go.with.cache, false);
+    assert.equal(step("build-go").if, gate);
+    assert.match(step("build-go").run, /pr-conflict-radar\.mjs" build go$/);
+    assert.equal(step("build-go").env.ACTION_PATH, expr("github.action_path"));
+    assert.ok(ids.indexOf("prepare") < steps.indexOf(go));
+    assert.ok(steps.indexOf(go) < ids.indexOf("build-go"));
+    assert.ok(ids.indexOf("build-go") < ids.indexOf("scan"));
+  });
+
+  it("builds the Rust mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    assert.equal(step("build-rust").if, `${GATE} && steps.prepare.outputs.rust == 'true'`);
+    assert.match(step("build-rust").run, /pr-conflict-radar\.mjs" build rust$/);
+    assert.equal(step("build-rust").env.ACTION_PATH, expr("github.action_path"));
+    assert.ok(ids.indexOf("prepare") < ids.indexOf("build-rust"));
+    assert.ok(ids.indexOf("build-rust") < ids.indexOf("scan"));
+  });
+
+  it("sets up Python and builds the C and C++ mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    const gate = `${GATE} && steps.prepare.outputs.cpp == 'true'`;
+    const python = steps.find((candidate) => candidate.uses?.startsWith("actions/setup-python@v7"));
+    assert.ok(python);
+    assert.equal(python.if, gate);
+    assert.equal(python.with["python-version"], "3.12");
+    assert.equal(step("build-cpp").if, gate);
+    assert.match(step("build-cpp").run, /pr-conflict-radar\.mjs" build cpp$/);
+    assert.equal(step("build-cpp").env.ACTION_PATH, expr("github.action_path"));
+    assert.ok(ids.indexOf("build-rust") < steps.indexOf(python));
+    assert.ok(steps.indexOf(python) < ids.indexOf("build-cpp"));
+    assert.ok(ids.indexOf("build-cpp") < ids.indexOf("scan"));
+  });
+
+  it("runs each phase through the CLI in the action's directory", () => {
+    for (const phase of ["probe", "prepare", "scan"]) {
+      assert.match(step(phase).run, new RegExp(`pr-conflict-radar\\.mjs" ${phase} `));
+      assert.equal(step(phase).env.ACTION_PATH, expr("github.action_path"));
+      assert.equal(step(phase).env.GH_TOKEN, expr("inputs.token"));
+    }
+  });
+
+  it("passes inputs through the environment, never into the script text", () => {
+    for (const candidate of steps.filter((entry) => entry.run !== undefined)) {
+      assert.doesNotMatch(candidate.run, /\$\{\{/);
+    }
+  });
+});

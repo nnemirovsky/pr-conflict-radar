@@ -1,0 +1,46 @@
+#include "acme/widget.h"
+
+namespace acme {
+namespace ui {
+
+Widget::Widget(int width) : width_{width} {}
+
+Widget::~Widget() {}
+
+void Widget::resize(int width)
+{
+    width_ = width;
+}
+
+int Widget::Layout::columns() const
+{
+    return 3;
+}
+
+template <class T>
+void Box<T>::put(T value)
+{
+    items_.push_back(value);
+}
+
+}  // namespace ui
+}  // namespace acme
+
+void net::Socket::open()
+{
+    connect();
+}
+
+struct Ledger {
+    std::map<Key, std::vector<Entry>> entries;
+    int total;
+};
+
+void Cart::add(int count)
+{
+}
+
+class Cart {
+public:
+    void add(int count);
+};
