@@ -11,7 +11,7 @@ import {
   publish,
   WRITE,
 } from "../lib/publish.mjs";
-import { buildResults, extract, RESOLVED_LINE, renderComment } from "../lib/report.mjs";
+import { BUDGET, buildResults, extract, RESOLVED_LINE, renderComment } from "../lib/report.mjs";
 import { notSimulated, pairId } from "../lib/simulate.mjs";
 
 const REPO = "acme/widgets";
@@ -616,5 +616,31 @@ describe("interrupted and reduced publishes", () => {
     assert.deepEqual(planPublish(s1.results, s1.after, s1.cfg), []);
     const recorded = s1.after.pulls.map((pr) => pr.recorded);
     assert.deepEqual(planPublish(recorded, s1.after, s1.cfg), []);
+  });
+
+  it("keeps every write under the budget and plans none over its output when entries leave the embedded data", () => {
+    // Pull request 1 conflicts with the 199 others under a long pair key, so
+    // capping alone cannot fit its result or its comment's data.
+    const cfg = config({ maxPrs: 200, pairKey: `conflict/{repo}/${"k".repeat(150)}/{low}+{high}` });
+    const others = Array.from({ length: 199 }, (_, i) => i + 2);
+    const prs = [1, ...others].map((n) => pull(n));
+    const s1 = step(EMPTY, prs, { cfg, conflicts: others.map((n) => [1, n]) });
+    for (const write of s1.writes) {
+      const text = write.body ?? write.check.text;
+      assert.ok(text.length < BUDGET, `${label(write)}: ${text.length}`);
+      if (write.check) assert.ok(write.check.summary.length < BUDGET, label(write));
+    }
+    const recordedOne = pullOf(s1.after, 1).recorded;
+    assert.ok(recordedOne.conflictsOmitted > 0);
+    const data = commentData(s1.after, 1);
+    assert.ok(data.conflictsOmitted > 0);
+    const shown = recordedOne.conflicts.map((conflict) => conflict.key);
+    assert.deepEqual(data.notified, shown);
+
+    assert.deepEqual(planPublish(s1.results, s1.after, s1.cfg), []);
+    const recorded = s1.after.pulls.map((pr) => pr.recorded);
+    assert.deepEqual(planPublish(recorded, s1.after, s1.cfg), []);
+    const s2 = step(s1.after, prs, { cfg, conflicts: others.map((n) => [1, n]) });
+    assert.deepEqual(s2.writes, []);
   });
 });

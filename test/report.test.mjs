@@ -1043,6 +1043,87 @@ describe("size budget", () => {
     assert.ok(body.length < BUDGET, String(body.length));
     assert.deepEqual(extract(body), kept);
   });
+
+  // Pull request 1 conflicts with the 199 others in a repository whose name
+  // has the longest owner and name GitHub allows, so the conflict entries
+  // alone pass `EMBED_BUDGET` even with every nested list capped at zero.
+  const LONG_REPO = `${"o".repeat(39)}/${"w".repeat(100)}`;
+  const crowd = Array.from({ length: 199 }, (_, i) => i + 2);
+  function crowdResult(cfg) {
+    const prs = [pull(1), ...crowd.map((n) => pull(n, { author: `dev-${n}` }))];
+    const pairs = crowd.map((n) => conflictPair(1, n));
+    return resultOf(buildResults(sim({ prs, pairs }), cfg, LONG_REPO), 1);
+  }
+
+  it("leaves the last rows out of a comment that capping cannot fit and keeps every key notified", () => {
+    const cfg = config();
+    const result = crowdResult(cfg);
+    const data = { ...findings(result, cfg), notified: result.conflicts.map((c) => c.key) };
+    assert.equal(data.conflicts.length, 199);
+    assert.ok(embed(data).length > EMBED_BUDGET);
+
+    const kept = reduceComment(data);
+    assert.ok(embed(kept).length <= EMBED_BUDGET, String(embed(kept).length));
+    assert.equal(kept.truncated, true);
+    assert.ok(kept.conflicts.length > 0 && kept.conflicts.length < 199);
+    assert.equal(kept.conflicts.length + kept.conflictsOmitted, 199);
+    assert.deepEqual(
+      kept.conflicts.map((row) => row.with),
+      crowd.slice(0, kept.conflicts.length),
+    );
+    assert.deepEqual(kept.notified, data.notified);
+    assert.equal(reduceComment(kept), kept);
+
+    const body = renderComment(data, cfg);
+    assert.ok(body.length < BUDGET, String(body.length));
+    assert.deepEqual(extract(body), kept);
+    assert.ok(body.includes("This pull request conflicts with 199 other open pull requests"));
+    assert.match(body, /\d+ more rows left out\./);
+    assertTablesIntact(stripMarker(body));
+  });
+
+  it("leaves the last hints, then overlaps, then conflicts out of a result that capping cannot fit", () => {
+    const cfg = config();
+    const built = crowdResult(cfg);
+    const full = {
+      ...built,
+      overlaps: built.conflicts.map((conflict) => ({
+        with: conflict.with,
+        withAuthor: conflict.withAuthor,
+        sameAuthor: false,
+        tier: "member",
+        kind: "same-member",
+        members: [{ name: "Cart.total", kind: "method", path: "src/cart.ts" }],
+        key: conflict.key,
+      })),
+      hints: built.conflicts.map((conflict) => ({
+        with: conflict.with,
+        kind: "changed-and-used",
+        names: [{ name: "total", path: "src/cart.ts" }],
+      })),
+    };
+
+    const reduced = reduceResult(full);
+    assert.ok(embed(reduced).length <= EMBED_BUDGET, String(embed(reduced).length));
+    assert.equal(reduced.truncated, true);
+    assert.deepEqual(reduced.hints, []);
+    assert.equal(reduced.hintsOmitted, 199);
+    assert.deepEqual(reduced.overlaps, []);
+    assert.equal(reduced.overlapsOmitted, 199);
+    assert.ok(reduced.conflicts.length > 0 && reduced.conflicts.length < 199);
+    assert.equal(reduced.conflicts.length + reduced.conflictsOmitted, 199);
+    assert.equal(reduceResult(reduced), reduced);
+
+    const check = renderCheck(full, cfg);
+    for (const field of [check.title, check.summary, check.text]) {
+      assert.ok(field.length < BUDGET, String(field.length));
+    }
+    assert.deepEqual(extract(check.text), reduced);
+    assert.equal(check.conclusion, "neutral");
+    assert.equal(check.title, "Conflicts with 199 pull requests");
+    assert.match(check.summary, /\d+ more rows left out\./);
+    assertTablesIntact(check.summary);
+  });
 });
 
 describe("member signals in the result", () => {
