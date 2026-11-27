@@ -37,6 +37,7 @@ describe("action.yml", () => {
       "build-csharp",
       undefined,
       "build-go",
+      "build-rust",
       "scan",
     ]);
     assert.match(steps[0].run, /Node\.js 20/);
@@ -94,6 +95,15 @@ describe("action.yml", () => {
     assert.ok(ids.indexOf("prepare") < steps.indexOf(go));
     assert.ok(steps.indexOf(go) < ids.indexOf("build-go"));
     assert.ok(ids.indexOf("build-go") < ids.indexOf("scan"));
+  });
+
+  it("builds the Rust mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    assert.equal(step("build-rust").if, `${GATE} && steps.prepare.outputs.rust == 'true'`);
+    assert.match(step("build-rust").run, /pr-conflict-radar\.mjs" build rust$/);
+    assert.equal(step("build-rust").env.ACTION_PATH, expr("github.action_path"));
+    assert.ok(ids.indexOf("prepare") < ids.indexOf("build-rust"));
+    assert.ok(ids.indexOf("build-rust") < ids.indexOf("scan"));
   });
 
   it("runs each phase through the CLI in the action's directory", () => {

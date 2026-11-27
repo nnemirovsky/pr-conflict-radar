@@ -116,6 +116,14 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: node "$ACTION_PATH/pr-conflict-radar.mjs" build go
 
+    - id: build-rust
+      name: Build the Rust member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.rust == 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build rust
+
     - id: scan
       name: Scan
       if: steps.probe.outputs.changed == 'true'
