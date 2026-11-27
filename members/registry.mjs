@@ -103,6 +103,47 @@ function runCsharp({ dir, env, request, maxFileBytes }) {
   };
 }
 
+// Go variables that survive into the build; every other `GO*` variable of the
+// job (`GOFLAGS`, `GOENV`, `GOWORK`, `GOTOOLCHAIN`, ...) is dropped so neither a
+// parent `go.work`, a `GOENV` file nor the job's flags apply.
+const GO_KEPT = new Set(["GOROOT", "GOPATH", "GOCACHE", "GOMODCACHE"]);
+const GO_VARIABLE = /^GO[A-Z0-9]+$/;
+
+function goBuildEnv(env) {
+  const out = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (GO_VARIABLE.test(name) && !GO_KEPT.has(name)) continue;
+    out[name] = value;
+  }
+  return {
+    ...out,
+    GOWORK: "off",
+    GOENV: "off",
+    GOFLAGS: "",
+    GOTOOLCHAIN: "local",
+    CGO_ENABLED: "0",
+  };
+}
+
+function goBinary(work) {
+  return join(work, process.platform === "win32" ? "member-map-go.exe" : "member-map-go");
+}
+
+function buildGo({ dir, work, env }) {
+  return [
+    {
+      command: "go",
+      args: ["build", "-o", goBinary(work), "."],
+      cwd: dir,
+      env: goBuildEnv(env),
+    },
+  ];
+}
+
+function runGo({ work, env, request, maxFileBytes }) {
+  return { command: goBinary(work), args: [request, String(maxFileBytes)], cwd: work, env };
+}
+
 export const registry = Object.freeze([
   Object.freeze({
     key: "typescript",
@@ -127,6 +168,8 @@ export const registry = Object.freeze([
   }),
   Object.freeze({
     key: "go",
+    build: buildGo,
+    run: runGo,
     patterns: Object.freeze(["**/*.go"]),
   }),
   Object.freeze({

@@ -35,6 +35,8 @@ describe("action.yml", () => {
       undefined,
       undefined,
       "build-csharp",
+      undefined,
+      "build-go",
       "scan",
     ]);
     assert.match(steps[0].run, /Node\.js 20/);
@@ -76,6 +78,22 @@ describe("action.yml", () => {
     assert.ok(at(dotnet) < at(cache));
     assert.ok(at(cache) < ids.indexOf("build-csharp"));
     assert.ok(ids.indexOf("build-csharp") < ids.indexOf("scan"));
+  });
+
+  it("sets up Go and builds the Go mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    const gate = `${GATE} && steps.prepare.outputs.go == 'true'`;
+    const go = steps.find((candidate) => candidate.uses?.startsWith("actions/setup-go@v7"));
+    assert.ok(go);
+    assert.equal(go.if, gate);
+    assert.equal(go.with["go-version-file"], `${expr("github.action_path")}/members/go/go.mod`);
+    assert.equal(go.with.cache, false);
+    assert.equal(step("build-go").if, gate);
+    assert.match(step("build-go").run, /pr-conflict-radar\.mjs" build go$/);
+    assert.equal(step("build-go").env.ACTION_PATH, expr("github.action_path"));
+    assert.ok(ids.indexOf("prepare") < steps.indexOf(go));
+    assert.ok(steps.indexOf(go) < ids.indexOf("build-go"));
+    assert.ok(ids.indexOf("build-go") < ids.indexOf("scan"));
   });
 
   it("runs each phase through the CLI in the action's directory", () => {

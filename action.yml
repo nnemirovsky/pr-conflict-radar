@@ -101,6 +101,21 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: node "$ACTION_PATH/pr-conflict-radar.mjs" build csharp
 
+    - name: Set up Go
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.go == 'true'
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ github.action_path }}/members/go/go.mod
+        cache: false
+
+    - id: build-go
+      name: Build the Go member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.go == 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build go
+
     - id: scan
       name: Scan
       if: steps.probe.outputs.changed == 'true'

@@ -25,6 +25,11 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: members/go/go.mod
+          cache: false
+
       # The suite runs on the runner's default Node and then on Node 20, the
       # `engines` minimum, in one job so the check name stays `test`.
       - run: npm ci
