@@ -512,6 +512,12 @@ describe("errors", () => {
     assert.equal(fake.calls.length, 2);
   });
 
+  it("does not retry the comment creation on a 5xx, which may have saved the comment", async () => {
+    const fake = fakeGitHub({ prs: [], rest: () => ({ status: 502, body: "bad gateway" }) });
+    await assert.rejects(client(fake).createComment(1, "x"), (error) => error.status === 502);
+    assert.equal(fake.calls.length, 1);
+  });
+
   it("retries once on a secondary rate limit, waiting for retry-after", async () => {
     let attempts = 0;
     const waits = [];
