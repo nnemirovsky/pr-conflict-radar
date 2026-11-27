@@ -124,6 +124,20 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: node "$ACTION_PATH/pr-conflict-radar.mjs" build rust
 
+    - name: Set up Python
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.cpp == 'true'
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - id: build-cpp
+      name: Build the C and C++ member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.cpp == 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build cpp
+
     - id: scan
       name: Scan
       if: steps.probe.outputs.changed == 'true'

@@ -38,6 +38,8 @@ describe("action.yml", () => {
       undefined,
       "build-go",
       "build-rust",
+      undefined,
+      "build-cpp",
       "scan",
     ]);
     assert.match(steps[0].run, /Node\.js 20/);
@@ -104,6 +106,21 @@ describe("action.yml", () => {
     assert.equal(step("build-rust").env.ACTION_PATH, expr("github.action_path"));
     assert.ok(ids.indexOf("prepare") < ids.indexOf("build-rust"));
     assert.ok(ids.indexOf("build-rust") < ids.indexOf("scan"));
+  });
+
+  it("sets up Python and builds the C and C++ mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    const gate = `${GATE} && steps.prepare.outputs.cpp == 'true'`;
+    const python = steps.find((candidate) => candidate.uses?.startsWith("actions/setup-python@v7"));
+    assert.ok(python);
+    assert.equal(python.if, gate);
+    assert.equal(python.with["python-version"], "3.12");
+    assert.equal(step("build-cpp").if, gate);
+    assert.match(step("build-cpp").run, /pr-conflict-radar\.mjs" build cpp$/);
+    assert.equal(step("build-cpp").env.ACTION_PATH, expr("github.action_path"));
+    assert.ok(ids.indexOf("build-rust") < steps.indexOf(python));
+    assert.ok(steps.indexOf(python) < ids.indexOf("build-cpp"));
+    assert.ok(ids.indexOf("build-cpp") < ids.indexOf("scan"));
   });
 
   it("runs each phase through the CLI in the action's directory", () => {

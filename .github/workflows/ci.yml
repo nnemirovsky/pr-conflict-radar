@@ -30,6 +30,10 @@ jobs:
           go-version-file: members/go/go.mod
           cache: false
 
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       # The suite runs on the runner's default Node and then on Node 20, the
       # `engines` minimum, in one job so the check name stays `test`.
       - run: npm ci
