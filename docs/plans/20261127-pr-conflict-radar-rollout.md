@@ -134,9 +134,9 @@ Run the action on real pull requests first, write down everything that differs f
 - Modify: `docs/plans/20261127-pr-conflict-radar-rollout.md`
 
 - [ ] confirm `package.json`'s `version` is `0.1.0` and that `release.yml`'s version check would accept `v0.1.0`
-- [ ] bring the README's status line and quick start to their release wording, keeping the `<commit SHA>` placeholder
+- [ ] bring the README's quick start to its release wording, keeping the `<commit SHA>` placeholder; the README carries no status line
 - [ ] write in this plan the exact commands the owner runs to tag and push `v0.1.0`, and what to check on the release page afterwards
-- [ ] write a test, or extend the docs test, that the README's status no longer says nothing is released while `package.json` carries a release version
+- [ ] extend the docs test so the README carries no status line and no claim that nothing is released while `package.json` carries a release version
 - [ ] run `npm test` and `npm run lint` - must pass before task 5
 
 ### Task 5: Verify acceptance criteria
