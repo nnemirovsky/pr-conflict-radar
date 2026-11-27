@@ -2,7 +2,7 @@
 
 Repository: `nnemirovsky/pr-conflict-radar`, default branch `main`. Branch for this plan: `fix/rollout-findings`; one pull request, opened only on the owner's word.
 
-**Precondition.** The pull request of `docs/plans/20261127-pr-conflict-radar.md` is merged: the action, `ci.yml` and both radar workflows (`pr-conflict-radar-trigger.yml`, `pr-conflict-radar.yml`) are on `main`, and `ci.yml` has completed there at least once. Do not start before that; nothing in this plan can work earlier, because `pull_request_target` and `workflow_dispatch` workflows only take effect from the default branch.
+**Precondition.** The pull request of `docs/plans/completed/20261127-pr-conflict-radar.md` is merged: the action, `ci.yml` and both radar workflows (`pr-conflict-radar-trigger.yml`, `pr-conflict-radar.yml`) are on `main`, and `ci.yml` has completed there at least once. Do not start before that; nothing in this plan can work earlier, because `pull_request_target` and `workflow_dispatch` workflows only take effect from the default branch.
 
 This plan is committed to the repository, so it names no other organisation, repository or person, except peerbus (`nnemirovsky/peerbus`), which the radar suggests.
 

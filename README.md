@@ -4,7 +4,7 @@ A GitHub Action that finds conflicts between open pull requests before they merg
 
 GitHub tells you when a pull request conflicts with its base branch. It does not tell you that two open pull requests will conflict with each other once the first one merges. `pr-conflict-radar` simulates that ahead of time and reports it on both pull requests, for the people who own them and for the coding agents working on them.
 
-> **Status:** early development. Nothing is released yet, and the interface described here can still change.
+> **Status:** implemented, not yet released. The workflows in this repository start running once this branch is merged.
 
 ## What it does
 
@@ -280,7 +280,7 @@ gh api repos/acme/widgets/commits/<head sha>/check-runs \
   | jq -R -s 'capture("<!-- pr-conflict-radar:v1 (?<json>.*) -->"; "s") | .json | fromjson'
 ```
 
-Use the head SHA the pull request has now. A result on an older head is stale. A check run with the same name that has no readable marker is not the radar's; skip it.
+Use the head SHA the pull request has at the moment of the call. A result on an older head is stale. A check run with the same name that has no readable marker is not the radar's; skip it.
 
 ### The comment
 

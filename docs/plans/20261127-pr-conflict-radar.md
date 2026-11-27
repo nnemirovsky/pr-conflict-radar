@@ -814,9 +814,9 @@ Verification before the merge is local. The trigger and scan workflows take effe
 - Modify: `docs/plans/20261127-pr-conflict-radar.md`
 - Modify: `docs/plans/20261127-pr-conflict-radar-rollout.md`
 
-- [ ] replace the README's "early development" status with the state the branch is in: implemented, not yet released, the workflows active once merged
-- [ ] confirm `CONTRIBUTING.md`, `SECURITY.md` and the README describe what was built, and that no doc or comment carries history
-- [ ] move this plan to `docs/plans/completed/` and point the rollout plan's references to it at the new path
+- [x] replace the README's "early development" status with the state the branch is in: implemented, not yet released, the workflows active once merged
+- [x] confirm `CONTRIBUTING.md`, `SECURITY.md` and the README describe what was built, and that no doc or comment carries history
+- [x] move this plan to `docs/plans/completed/` and point the rollout plan's references to it at the new path (plan move done by the orchestrator at the end)
 
 ## Post-Completion
 
