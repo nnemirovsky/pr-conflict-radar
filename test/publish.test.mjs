@@ -88,7 +88,6 @@ function run({ prs, cfg, conflicts = [], baseConflicts = [], order, base = BASE 
       class: "code",
     })),
     pairs,
-    checked: pairs.map((pair) => pairId(pair.first, pair.second)),
     train: { merged: mergeable, breaks: [] },
     notSimulated: skipped,
     notes: [],

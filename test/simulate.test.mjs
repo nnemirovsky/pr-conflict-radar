@@ -26,6 +26,9 @@ function pr(number, head, extra = {}) {
   };
 }
 
+// The pairs a run checked, as pair ids in predicted order.
+const checkedIds = (result) => result.pairs.map((pair) => pairId(pair.first, pair.second));
+
 function config({ maxPrs = 40 } = {}) {
   const value = defaultConfig();
   value.maxPrs = maxPrs;
@@ -57,10 +60,11 @@ describe("simulate", () => {
     assert.deepEqual(result.pairs, [
       { first: 12, second: 15, clean: true, files: [], class: null },
     ]);
-    assert.deepEqual(result.checked, ["12+15"]);
+    assert.deepEqual(checkedIds(result), ["12+15"]);
     assert.deepEqual(result.train, { merged: [12, 15], breaks: [] });
     assert.deepEqual(result.notSimulated, []);
     assert.deepEqual(result.notes, []);
+    assert.equal(Object.hasOwn(result, "checked"), false);
   });
 
   it("does not simulate a head that shares no history with the base and simulates the rest", async () => {
@@ -73,7 +77,7 @@ describe("simulate", () => {
     assert.deepEqual(result.order, [12, 15]);
     assert.deepEqual(Object.keys(result.pulls), ["12", "14", "15"]);
     assert.deepEqual(result.baseConflicts, []);
-    assert.deepEqual(result.checked, ["12+15"]);
+    assert.deepEqual(checkedIds(result), ["12+15"]);
     assert.equal(result.pairs[0].clean, false);
     assert.deepEqual(result.train.merged, [12]);
     assert.deepEqual(result.notSimulated, [
@@ -103,7 +107,7 @@ describe("simulate", () => {
         class: "code",
       },
     ]);
-    assert.deepEqual(result.checked, ["12+15"]);
+    assert.deepEqual(checkedIds(result), ["12+15"]);
   });
 
   it("classifies a docs-only conflict as docs", async () => {
@@ -127,7 +131,7 @@ describe("simulate", () => {
       result.pairs.map((p) => [p.first, p.second]),
       [[15, 18]],
     );
-    assert.deepEqual(result.checked, ["15+18"]);
+    assert.deepEqual(checkedIds(result), ["15+18"]);
     assert.deepEqual(result.train, { merged: [15, 18], breaks: [] });
   });
 
@@ -147,7 +151,7 @@ describe("simulate", () => {
     const result = await run([pr(12, renamed), pr(15, edited), pr(18, third)], config(), start);
     assert.deepEqual(result.baseConflicts, []);
     assert.ok(result.pairs.every((p) => p.clean));
-    assert.deepEqual(result.checked, ["12+15", "12+18", "15+18"]);
+    assert.deepEqual(checkedIds(result), ["12+15", "12+18", "15+18"]);
     assert.deepEqual(result.train, {
       merged: [12, 15],
       breaks: [
@@ -190,7 +194,7 @@ describe("simulate", () => {
     const prs = [pr(12, heads[0]), pr(15, heads[1], { isDraft: true }), pr(18, heads[2])];
     const result = await run(prs, config({ maxPrs: 2 }));
     assert.deepEqual(result.order, [12, 18]);
-    assert.deepEqual(result.checked, ["12+18"]);
+    assert.deepEqual(checkedIds(result), ["12+18"]);
     assert.deepEqual(result.train.merged, [12, 18]);
     assert.deepEqual(result.notes, [
       "Simulated the first 2 of 3 open pull requests that target the default branch, in the " +

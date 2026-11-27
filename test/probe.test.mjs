@@ -69,7 +69,6 @@ function results(state, cfg, conflicts = []) {
     pulls,
     baseConflicts: [],
     pairs,
-    checked: pairs.map((pair) => pairId(pair.first, pair.second)),
     train: { merged: order, breaks: [] },
     notSimulated: skipped,
     notes: [],

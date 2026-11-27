@@ -21,7 +21,7 @@ import {
   renderJobSummary,
   SCHEMA,
 } from "../lib/report.mjs";
-import { NOT_SIMULATED, pairId } from "../lib/simulate.mjs";
+import { NOT_SIMULATED } from "../lib/simulate.mjs";
 
 const REPO = "acme/widgets";
 const BASE = "b".repeat(40);
@@ -88,7 +88,6 @@ function sim({
     pulls: Object.fromEntries(prs.map((pr) => [pr.number, pr])),
     baseConflicts,
     pairs: pairList,
-    checked: pairList.map((pair) => pairId(pair.first, pair.second)),
     train: {
       merged: order.filter((n) => !broken.has(n) && !inBase.has(n)),
       breaks,
