@@ -981,6 +981,35 @@ describe("size budget", () => {
     assert.ok(job.length < BUDGET, String(job.length));
   });
 
+  it("cuts the notes of a result whose mapper notes alone pass the budget", () => {
+    const cfg = config();
+    const [result] = buildResults(
+      sim({ prs: [pull(12), pull(15)], pairs: [{ first: 12, second: 15 }] }),
+      cfg,
+      REPO,
+    ).filter((entry) => entry.pr === 12);
+    const mapped = Array.from(
+      { length: 500 },
+      (_, i) =>
+        `The members of ${`src/${String(i).padStart(3, "0")}/`.padEnd(180, "x")}.ts were not mapped: syntax error at line 1`,
+    );
+    const full = { ...result, notes: ["The first note.", ...mapped] };
+    assert.ok(embed(full).length > EMBED_BUDGET);
+    const check = renderCheck(full, cfg);
+    for (const field of [check.title, check.summary, check.text]) {
+      assert.ok(field.length < BUDGET, String(field.length));
+    }
+    const reduced = reduceResult(full);
+    assert.ok(embed(reduced).length <= EMBED_BUDGET);
+    assert.equal(reduced.truncated, true);
+    assert.equal(reduced.notes[0], "The first note.");
+    assert.ok(reduced.notes.length > 1);
+    assert.equal(reduced.notes.length + reduced.notesOmitted, full.notes.length);
+    assert.deepEqual(extract(check.text), reduced);
+    assert.match(check.summary, /and \d+ more notes/);
+    assert.equal(reduceResult(reduced), reduced);
+  });
+
   it("leaves a reduced result unchanged", () => {
     const cfg = config();
     const reduced = reduceResult(resultOf(bigResults(cfg), 100));
