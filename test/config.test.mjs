@@ -287,6 +287,14 @@ describe("loadConfig validation", () => {
     rejects({ pairKey: 12 }, "pairKey");
   });
 
+  it("refuses a pairKey template longer than 100 characters", () => {
+    const tail = "/{low}+{high}";
+    const at = (length) => `${"k".repeat(length - tail.length)}${tail}`;
+    assert.equal(load({ pairKey: at(100) }).pairKey, at(100));
+    rejects({ pairKey: at(101) }, "pairKey", "100", "101");
+    rejects({ pairKey: `${"\u{1F600}".repeat(101)}{low}` }, "pairKey", "100", "106");
+  });
+
   it("refuses an enabled other than auto, true and false", () => {
     for (const value of ["yes", "true", 1, null, "Auto"]) {
       rejects(
