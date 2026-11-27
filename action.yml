@@ -72,6 +72,14 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: node "$ACTION_PATH/pr-conflict-radar.mjs" prepare --config "$CONFIG"
 
+    - id: build-typescript
+      name: Build the TypeScript member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.typescript == 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build typescript
+
     - id: scan
       name: Scan
       if: steps.probe.outputs.changed == 'true'

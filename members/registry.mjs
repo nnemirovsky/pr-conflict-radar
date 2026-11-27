@@ -8,7 +8,14 @@
 // for a valid value and otherwise a message that names `field`.
 //
 // An entry whose mapper exists also holds `build({dir, work, env})`, the steps
-// that prepare the mapper (see `lib/members.mjs`).
+// that prepare the mapper (see `lib/members.mjs`), and
+// `run({dir, work, env, request, maxFileBytes, defines})`, the one command that
+// maps a request file. Both return commands as argument arrays, never shell
+// text. `dir` is the mapper's directory (the action's own `members/<key>` by
+// default).
+
+import { createRequire } from "node:module";
+import { join } from "node:path";
 
 // A `members.cpp.defines` entry: an object-like macro `NAME` or a function-like
 // macro used as a declaration, `NAME(...)`.
@@ -28,9 +35,53 @@ function validateDefines(value, field) {
   return null;
 }
 
+// The directory that holds `package.json` for a mapper directory `dir`
+// (`<action>/members/<key>`).
+function actionDirOf(dir) {
+  return join(dir, "..", "..");
+}
+
+function typescriptResolves(actionDir) {
+  try {
+    createRequire(join(actionDir, "package.json")).resolve("typescript");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildTypescript({ dir, env }) {
+  const cwd = actionDirOf(dir);
+  if (typescriptResolves(cwd)) return [];
+  return [
+    {
+      command: "npm",
+      args: ["ci", "--omit=dev", "--ignore-scripts"],
+      cwd,
+      env: {
+        ...env,
+        npm_config_audit: "false",
+        npm_config_fund: "false",
+        npm_config_update_notifier: "false",
+      },
+    },
+  ];
+}
+
+function runTypescript({ dir, work, env, request, maxFileBytes }) {
+  return {
+    command: process.execPath,
+    args: [join(dir, "member-map.mjs"), request, String(maxFileBytes)],
+    cwd: work ?? dir,
+    env,
+  };
+}
+
 export const registry = Object.freeze([
   Object.freeze({
     key: "typescript",
+    build: buildTypescript,
+    run: runTypescript,
     patterns: Object.freeze([
       "**/*.ts",
       "**/*.tsx",

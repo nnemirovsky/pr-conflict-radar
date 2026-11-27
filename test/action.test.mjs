@@ -27,7 +27,7 @@ describe("action.yml", () => {
 
   it("runs probe, prepare and scan in that order, after the version checks", () => {
     const ids = steps.map((candidate) => candidate.id);
-    assert.deepEqual(ids, [undefined, "probe", "prepare", "scan"]);
+    assert.deepEqual(ids, [undefined, "probe", "prepare", "build-typescript", "scan"]);
     assert.match(steps[0].run, /Node\.js 20/);
     assert.match(steps[0].run, /git 2\.38/);
   });
@@ -36,6 +36,18 @@ describe("action.yml", () => {
     assert.equal(step("probe").if, undefined);
     assert.equal(step("prepare").if, GATE);
     assert.equal(step("scan").if, GATE);
+  });
+
+  it("builds the TypeScript mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    assert.ok(ids.indexOf("prepare") < ids.indexOf("build-typescript"));
+    assert.ok(ids.indexOf("build-typescript") < ids.indexOf("scan"));
+    assert.equal(
+      step("build-typescript").if,
+      `${GATE} && steps.prepare.outputs.typescript == 'true'`,
+    );
+    assert.match(step("build-typescript").run, /pr-conflict-radar\.mjs" build typescript$/);
+    assert.equal(step("build-typescript").env.ACTION_PATH, expr("github.action_path"));
   });
 
   it("runs each phase through the CLI in the action's directory", () => {
