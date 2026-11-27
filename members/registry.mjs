@@ -6,6 +6,9 @@
 //
 // An option is `{default, validate(value, field)}`; `validate` returns `null`
 // for a valid value and otherwise a message that names `field`.
+//
+// An entry whose mapper exists also holds `build({dir, work, env})`, the steps
+// that prepare the mapper (see `lib/members.mjs`).
 
 // A `members.cpp.defines` entry: an object-like macro `NAME` or a function-like
 // macro used as a declaration, `NAME(...)`.
