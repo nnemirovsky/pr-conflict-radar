@@ -77,6 +77,32 @@ function runTypescript({ dir, work, env, request, maxFileBytes }) {
   };
 }
 
+const DOTNET_ENV = {
+  DOTNET_NOLOGO: "1",
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1",
+};
+
+function buildCsharp({ dir, env }) {
+  return [
+    {
+      command: "dotnet",
+      args: ["build", "MemberMap.cs"],
+      cwd: dir,
+      env: { ...env, ...DOTNET_ENV },
+    },
+  ];
+}
+
+function runCsharp({ dir, env, request, maxFileBytes }) {
+  return {
+    command: "dotnet",
+    args: ["run", "--no-build", "MemberMap.cs", "--", request, String(maxFileBytes)],
+    cwd: dir,
+    env: { ...env, ...DOTNET_ENV },
+  };
+}
+
 export const registry = Object.freeze([
   Object.freeze({
     key: "typescript",
@@ -95,6 +121,8 @@ export const registry = Object.freeze([
   }),
   Object.freeze({
     key: "csharp",
+    build: buildCsharp,
+    run: runCsharp,
     patterns: Object.freeze(["**/*.cs"]),
   }),
   Object.freeze({
