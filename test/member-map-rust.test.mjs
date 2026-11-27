@@ -60,11 +60,11 @@ function spawnStep(step) {
 
 // Runs the registry's command for one request and resolves to
 // `{code, stdout, stderr, response}`.
-function runMapper(request, { maxFileBytes = MAX, dir = MAPPER_DIR } = {}) {
+function runMapper(request, { maxFileBytes = MAX, dir = MAPPER_DIR, env = process.env } = {}) {
   counter += 1;
   const requestPath = join(work, `request-${counter}.json`);
   writeFileSync(requestPath, JSON.stringify(request));
-  return spawnStep(entry.run({ dir, work, env: process.env, request: requestPath, maxFileBytes }));
+  return spawnStep(entry.run({ dir, work, env, request: requestPath, maxFileBytes }));
 }
 
 async function map(path, ranges, file = fixture(path)) {
@@ -325,6 +325,40 @@ describe("the rust member mapper", { skip }, () => {
     assert.equal(typeof response[0].error, "string");
     assert.equal(response[0].members, undefined);
     assert.deepEqual(names(response[1]), ["build"]);
+  });
+
+  it("kills a parse over the child limit and starts none that could end past the batch limit", async () => {
+    // A named pipe without a writer blocks the child that opens it.
+    counter += 1;
+    const pipe = join(work, `pipe-${counter}`);
+    assert.equal(spawnSync("mkfifo", [pipe]).status, 0);
+    const env = {
+      ...process.env,
+      PR_CONFLICT_RADAR_CHILD_LIMIT: "0.5",
+      PR_CONFLICT_RADAR_BATCH_LIMIT: "1.4",
+    };
+    const blocked = (id) => ({ id, path: "hang.rs", file: pipe, ranges: [range(1)] });
+    const started = Date.now();
+    const { code, response } = await runMapper(
+      [
+        blocked(1),
+        blocked(2),
+        blocked(3),
+        { id: 4, path: "cart.rs", file: fixture("cart.rs"), ranges: [range(81)] },
+      ],
+      { env },
+    );
+    const elapsed = Date.now() - started;
+    assert.equal(code, 0);
+    const timedOut = "the parser took longer than 0.5 seconds";
+    const outOfTime = "the mapper ran out of time before it parsed the file";
+    assert.deepEqual(response, [
+      { id: 1, error: timedOut },
+      { id: 2, error: timedOut },
+      { id: 3, error: outOfTime },
+      { id: 4, error: outOfTime },
+    ]);
+    assert.ok(elapsed < 4000, `took ${elapsed} ms`);
   });
 
   it("reports a file over maxFileBytes on its entry without parsing it", async () => {

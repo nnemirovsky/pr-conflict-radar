@@ -6,7 +6,13 @@
 // `syn` ends the whole process on a stack overflow, which no code can catch, so
 // each entry is parsed in a child process of its own: this binary run again
 // with `--entry <maxFileBytes>` and the entry on its standard input. A child
-// that dies or outlives `CHILD_LIMIT` becomes an error on its entry.
+// that dies or outlives `CHILD_LIMIT` becomes an error on its entry. A child is
+// started only while it can end within `BATCH_LIMIT` of the mapper's start, so
+// slow entries cannot carry the whole request past the scan's limit on one
+// mapper run; an entry left unstarted is an error on that entry. The
+// environment variables `PR_CONFLICT_RADAR_CHILD_LIMIT` and
+// `PR_CONFLICT_RADAR_BATCH_LIMIT` (seconds) can lower either limit, never
+// raise it.
 
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
@@ -22,6 +28,12 @@ use syn::{
 };
 
 const CHILD_LIMIT: Duration = Duration::from_secs(20);
+// Below the scan's 120-second limit on one mapper run, with room for the
+// mapper's own start and its response.
+const BATCH_LIMIT: Duration = Duration::from_secs(90);
+const CHILD_LIMIT_ENV: &str = "PR_CONFLICT_RADAR_CHILD_LIMIT";
+const BATCH_LIMIT_ENV: &str = "PR_CONFLICT_RADAR_BATCH_LIMIT";
+const OUT_OF_TIME: &str = "the mapper ran out of time before it parsed the file";
 const USAGE: &str = "usage: member-map <request.json> <maxFileBytes>";
 
 const KEYWORDS: &[&str] = &[
@@ -428,7 +440,18 @@ fn child(max_file_bytes: f64) -> i32 {
     0
 }
 
-fn run_child(entry: &Value, max_file_bytes: &str) -> Result<Value, Failure> {
+// The limit the variable `name` sets, in seconds, when it is below `default`;
+// otherwise `default`.
+fn lowered(name: &str, default: Duration) -> Duration {
+    match std::env::var(name).ok().and_then(|text| text.trim().parse::<f64>().ok()) {
+        Some(seconds) if seconds.is_finite() && seconds > 0.0 && seconds < default.as_secs_f64() => {
+            Duration::from_secs_f64(seconds)
+        }
+        _ => default,
+    }
+}
+
+fn run_child(entry: &Value, max_file_bytes: &str, limit: Duration) -> Result<Value, Failure> {
     let crashed = || fail("the parser failed on the file");
     let exe = std::env::current_exe().map_err(|_| crashed())?;
     let mut process = Command::new(exe)
@@ -453,7 +476,7 @@ fn run_child(entry: &Value, max_file_bytes: &str) -> Result<Value, Failure> {
     let status = loop {
         match process.try_wait() {
             Ok(Some(status)) => break Some(status),
-            Ok(None) if started.elapsed() >= CHILD_LIMIT => {
+            Ok(None) if started.elapsed() >= limit => {
                 let _ = process.kill();
                 let _ = process.wait();
                 break None;
@@ -469,7 +492,10 @@ fn run_child(entry: &Value, max_file_bytes: &str) -> Result<Value, Failure> {
     let _ = writer.join();
     let output = reader.join().map_err(|_| crashed())?;
     let Some(status) = status else {
-        return Err(fail("the parser took longer than 20 seconds"));
+        return Err(Failure(format!(
+            "the parser took longer than {} seconds",
+            limit.as_secs_f64()
+        )));
     };
     if !status.success() {
         return Err(crashed());
@@ -496,10 +522,18 @@ fn run(args: &[String]) -> i32 {
         eprintln!("the request must be a list");
         return 2;
     };
+    let child_limit = lowered(CHILD_LIMIT_ENV, CHILD_LIMIT);
+    let batch_limit = lowered(BATCH_LIMIT_ENV, BATCH_LIMIT);
+    let started = Instant::now();
     let mut out = Vec::with_capacity(request.len());
     for entry in &request {
         let id = entry.get("id").cloned().unwrap_or(Value::Null);
-        let mut response = match run_child(entry, &args[1]) {
+        let outcome = if started.elapsed() + child_limit > batch_limit {
+            Err(fail(OUT_OF_TIME))
+        } else {
+            run_child(entry, &args[1], child_limit)
+        };
+        let mut response = match outcome {
             Ok(Value::Object(map)) => map,
             Ok(_) => serde_json::Map::from_iter([("error".to_string(), json!("the parser failed on the file"))]),
             Err(Failure(message)) => serde_json::Map::from_iter([("error".to_string(), json!(message))]),

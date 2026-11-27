@@ -523,6 +523,42 @@ describe("the c and c++ member mapper", { skip }, () => {
     assert.ok(Date.now() - started < 40_000);
   });
 
+  it("starts no parse that could end past the batch limit and reports the entries it left", async () => {
+    // A named pipe without a writer blocks the child that opens it.
+    counter += 1;
+    const pipe = join(work, `pipe-${counter}`);
+    assert.equal(spawnSync("mkfifo", [pipe]).status, 0);
+    const env = {
+      ...process.env,
+      PR_CONFLICT_RADAR_CHILD_LIMIT: "1.5",
+      PR_CONFLICT_RADAR_BATCH_LIMIT: "3.5",
+    };
+    const request = [
+      ...Array.from({ length: 9 }, (_, i) => ({
+        id: i + 1,
+        path: "hang.cpp",
+        file: pipe,
+        ranges: [range(1)],
+      })),
+      { id: 10, path: "widget.cpp", file: fixture("widget.cpp"), ranges: [range(42)] },
+    ];
+    const started = Date.now();
+    const { code, response } = await runMapper(request, { env });
+    const elapsed = Date.now() - started;
+    assert.equal(code, 0);
+    const timedOut = "the parser took longer than 1.5 seconds";
+    const outOfTime = "the mapper ran out of time before it parsed the file";
+    assert.deepEqual(
+      response.map((answer) => answer.id),
+      request.map((item) => item.id),
+    );
+    assert.ok(response.every((answer) => [timedOut, outOfTime].includes(answer.error)));
+    assert.equal(response[0].error, timedOut);
+    // At most four children run at once, so two rounds start at most eight.
+    assert.deepEqual(response[9], { id: 10, error: outOfTime });
+    assert.ok(elapsed < 6000, `took ${elapsed} ms`);
+  });
+
   it("reports a file over maxFileBytes on its entry without parsing it", async () => {
     const { code, response } = await runMapper(
       [{ id: 1, path: "widget.cpp", file: fixture("widget.cpp"), ranges: [range(42)] }],

@@ -14,7 +14,12 @@ libclang ends the whole process on a stack overflow, so each entry is parsed
 in a child process of its own: this script run again through the same
 interpreter with `-I` and `--entry`, the entry on its standard input. A child
 that dies or outlives `CHILD_LIMIT` seconds is killed and becomes an error on
-its entry.
+its entry. A child is started only while it can end within `BATCH_LIMIT`
+seconds of the mapper's start, so slow entries cannot carry the whole request
+past the scan's limit on one mapper run; an entry left unstarted is an error on
+that entry. The environment variables `PR_CONFLICT_RADAR_CHILD_LIMIT` and
+`PR_CONFLICT_RADAR_BATCH_LIMIT` (seconds) can lower either limit, never raise
+it.
 
 The parse reads no included file (single-file mode), keeps going after errors
 and skips function bodies. Without its headers a file is full of errors, so
@@ -30,10 +35,17 @@ import os
 import re
 import subprocess
 import sys
+import time
 from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor
 
 CHILD_LIMIT = 20
+# Below the scan's 120-second limit on one mapper run, with room for the
+# mapper's own start and its response.
+BATCH_LIMIT = 90
+CHILD_LIMIT_ENV = "PR_CONFLICT_RADAR_CHILD_LIMIT"
+BATCH_LIMIT_ENV = "PR_CONFLICT_RADAR_BATCH_LIMIT"
+OUT_OF_TIME = "the mapper ran out of time before it parsed the file"
 MAX_DEFINES = 200
 DEFINE_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\(\.\.\.\))?")
 NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -86,18 +98,32 @@ def valid_defines(defines):
     )
 
 
-def run_child(entry, max_file_bytes, defines):
-    entry_id = entry.get("id") if isinstance(entry, dict) else None
+def lowered(name, default):
+    """The limit in seconds the variable `name` sets when it is below
+    `default`, otherwise `default`."""
+    try:
+        value = float(os.environ.get(name, ""))
+    except ValueError:
+        return default
+    return value if math.isfinite(value) and 0 < value < default else default
+
+
+def entry_id_of(entry):
+    return entry.get("id") if isinstance(entry, dict) else None
+
+
+def run_child(entry, max_file_bytes, defines, limit):
+    entry_id = entry_id_of(entry)
     payload = json.dumps({"entry": entry, "maxFileBytes": max_file_bytes, "defines": defines})
     try:
         done = subprocess.run(
             [sys.executable, "-I", os.path.abspath(__file__), "--entry"],
             input=payload.encode("utf-8"),
             capture_output=True,
-            timeout=CHILD_LIMIT,
+            timeout=limit,
         )
     except subprocess.TimeoutExpired:
-        return {"id": entry_id, "error": f"the parser took longer than {CHILD_LIMIT} seconds"}
+        return {"id": entry_id, "error": f"the parser took longer than {limit:g} seconds"}
     except OSError:
         return {"id": entry_id, "error": "the parser failed on the file"}
     if done.returncode != 0:
@@ -141,9 +167,18 @@ def main(argv):
         if not valid_defines(defines):
             sys.stderr.write("the defines file must be a list of NAME or NAME(...) entries\n")
             return 2
+    child_limit = lowered(CHILD_LIMIT_ENV, CHILD_LIMIT)
+    batch_limit = lowered(BATCH_LIMIT_ENV, BATCH_LIMIT)
+    started = time.monotonic()
+
+    def one(entry):
+        if time.monotonic() - started + child_limit > batch_limit:
+            return {"id": entry_id_of(entry), "error": OUT_OF_TIME}
+        return run_child(entry, max_file_bytes, defines, child_limit)
+
     workers = max(1, min(4, os.cpu_count() or 1))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        response = list(pool.map(lambda e: run_child(e, max_file_bytes, defines), request))
+        response = list(pool.map(one, request))
     sys.stdout.write(json.dumps(response) + "\n")
     return 0
 

@@ -363,6 +363,25 @@ describe("mapMembers and the signals", () => {
     assert.deepEqual(signals.changedAndUsed, [{ path: "src/cart.ts", name: "computeTotal" }]);
   });
 
+  it("orders a request's entries with the pull requests taking turns, in the given order", async () => {
+    const s = scenario({
+      base: { "keep.go": "def keep\n" },
+      heads: {
+        12: { "a/1.go": "def a1\n", "a/2.go": "def a2\n", "a/3.go": "def a3\n" },
+        15: { "b/1.go": "def b1\n", "b/2.go": "def b2\n" },
+        20: { "c/1.go": "def c1\n" },
+      },
+    });
+    const byNumber = new Map(s.pulls.map((pull) => [pull.number, pull]));
+    await map(s, { pulls: [15, 12, 20].map((number) => byNumber.get(number)) });
+    const runs = runsOf(s, "go");
+    assert.equal(runs.length, 1);
+    assert.deepEqual(
+      runs[0].entries.map((entry) => entry.path),
+      ["b/1.go", "a/1.go", "c/1.go", "b/2.go", "a/2.go", "a/3.go"],
+    );
+  });
+
   it("starts each mapper at most twice per scan, one request per side over every pull request", async () => {
     const base = {};
     const heads = { 12: {}, 15: {}, 20: {} };
