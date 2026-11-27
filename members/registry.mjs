@@ -16,6 +16,7 @@
 
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { devNull } from "node:os";
 import { join } from "node:path";
 
 // A `members.cpp.defines` entry: an object-like macro `NAME` or a function-like
@@ -205,6 +206,65 @@ function runRust({ work, env, request, maxFileBytes }) {
   return { command: rustBinary(work), args: [request, String(maxFileBytes)], cwd: work, env };
 }
 
+// pip and Python variables of the job are dropped and pip reads no config
+// file, so neither a `PIP_TARGET`, a `PIP_USER` nor an index setting of the
+// job redirects the install; `-I` keeps `PYTHON*` variables, the working
+// directory and the script's directory away from the interpreter.
+const PYTHON_VARIABLE = /^(PIP_|PYTHON)/;
+
+function venvPython(work) {
+  return process.platform === "win32"
+    ? join(work, "cpp-venv", "Scripts", "python.exe")
+    : join(work, "cpp-venv", "bin", "python");
+}
+
+function buildCpp({ dir, work, env }) {
+  const clean = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (PYTHON_VARIABLE.test(name)) continue;
+    clean[name] = value;
+  }
+  const stepEnv = {
+    ...clean,
+    PIP_CONFIG_FILE: devNull,
+    PIP_DISABLE_PIP_VERSION_CHECK: "1",
+    PIP_NO_INPUT: "1",
+  };
+  return [
+    {
+      command: process.platform === "win32" ? "python" : "python3",
+      args: ["-I", "-m", "venv", join(work, "cpp-venv")],
+      cwd: work,
+      env: stepEnv,
+    },
+    {
+      command: venvPython(work),
+      args: [
+        "-I",
+        "-m",
+        "pip",
+        "install",
+        "--require-hashes",
+        "--only-binary",
+        ":all:",
+        "--no-deps",
+        "-r",
+        join(dir, "requirements.txt"),
+      ],
+      cwd: work,
+      env: stepEnv,
+    },
+  ];
+}
+
+// `defines` is the path of a JSON file holding the validated
+// `members.cpp.defines` list; without it the mapper defines nothing.
+function runCpp({ dir, work, env, request, maxFileBytes, defines }) {
+  const args = ["-I", join(dir, "member_map.py"), request, String(maxFileBytes)];
+  if (defines !== undefined) args.push(defines);
+  return { command: venvPython(work), args, cwd: work, env };
+}
+
 export const registry = Object.freeze([
   Object.freeze({
     key: "typescript",
@@ -241,6 +301,8 @@ export const registry = Object.freeze([
   }),
   Object.freeze({
     key: "cpp",
+    build: buildCpp,
+    run: runCpp,
     patterns: Object.freeze([
       "**/*.c",
       "**/*.h",

@@ -1,0 +1,63 @@
+#include "acme/panel.h"
+#include <vector>
+
+#ifdef ACME_FAST
+static int fastScale(int value) { return value * 2; }
+#else
+static int slowScale(int value) { return value + value; }
+#endif
+
+namespace acme {
+namespace ui {
+
+enum class Mode { Idle, Busy, Done };
+
+using Size = int;
+
+class Panel {
+public:
+    Panel();
+    ~Panel();
+    void draw(int depth) const;
+    Size width;
+    Size height;
+    static int count;
+};
+
+int Panel::count = 0;
+
+Panel::Panel() : width{0}, height{0}
+{
+    count += 1;
+}
+
+Panel::~Panel()
+{
+    count -= 1;
+}
+
+void Panel::draw(int depth) const
+{
+    ACME_TRACE(depth);
+    render(width, height);
+}
+
+template <class T>
+T clampValue(T value, T low, T high)
+{
+    return value < low ? low : (value > high ? high : value);
+}
+
+int broken(int a)
+{
+    return a +* ;
+    missing(1, );
+}
+
+int afterBroken()
+{
+    return 2;
+}
+
+}  // namespace ui
+}  // namespace acme

@@ -1,0 +1,15 @@
+#ifndef ACME_CART_H
+#define ACME_CART_H
+
+#include <stddef.h>
+
+typedef struct cart_item {
+    const char *name;
+    int price;
+} cart_item;
+
+enum cart_state { CART_OPEN, CART_PAID };
+
+int cart_total(const cart_item *items, size_t count);
+
+#endif
