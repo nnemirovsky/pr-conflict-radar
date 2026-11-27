@@ -979,3 +979,155 @@ describe("size budget", () => {
     assert.deepEqual(extract(body), kept);
   });
 });
+
+describe("member signals in the result", () => {
+  const change = (path, members, identifiers = [], side = "head") => ({
+    path,
+    side,
+    members: members.map(([name, kind = "function", declarationTouched = false]) => ({
+      name,
+      kind,
+      declarationTouched,
+    })),
+    identifiers,
+  });
+
+  // 12 and 15 both change `computeTotal`; 20 touches the declaration of
+  // `formatPrice`, which 15 uses; 12 and 20 conflict textually.
+  function memberCase({ name = "computeTotal", identifiers = ["formatPrice"] } = {}) {
+    const prs = [pull(12), pull(15, { author: "dev-b" }), pull(20)];
+    const simulation = sim({
+      prs,
+      pairs: [{ first: 12, second: 15 }, conflictPair(12, 20), { first: 15, second: 20 }],
+    });
+    const members = {
+      changes: {
+        12: [change("src/cart.ts", [[name]])],
+        15: [change("src/cart.ts", [[name]], identifiers)],
+        20: [
+          change("src/cart.ts", [["render"]]),
+          change("src/price.ts", [["formatPrice", "function", true]]),
+        ],
+      },
+      notes: { 12: [], 15: ["The members of src/big.ts were not mapped."], 20: [] },
+      degraded: [],
+      failures: [],
+    };
+    return { simulation, members };
+  }
+
+  it("adds overlaps, hints, the members of conflicting files and the mapping notes", () => {
+    const cfg = config();
+    const { simulation, members } = memberCase();
+    const results = buildResults(simulation, cfg, REPO, members);
+    const overlap = (other, withAuthor) => ({
+      with: other,
+      withAuthor,
+      sameAuthor: false,
+      tier: "member",
+      kind: "same-member",
+      members: [{ path: "src/cart.ts", name: "computeTotal" }],
+      key: "conflict/widgets/12+15",
+    });
+    assert.deepEqual(resultOf(results, 12).overlaps, [overlap(15, "dev-b")]);
+    assert.deepEqual(resultOf(results, 15).overlaps, [overlap(12, "dev-a")]);
+    assert.deepEqual(resultOf(results, 20).overlaps, []);
+    const hint = (other) => ({
+      with: other,
+      kind: "changed-and-used",
+      names: [{ path: "src/price.ts", name: "formatPrice" }],
+    });
+    assert.deepEqual(resultOf(results, 15).hints, [hint(20)]);
+    assert.deepEqual(resultOf(results, 20).hints, [hint(15)]);
+    assert.deepEqual(resultOf(results, 12).hints, []);
+    assert.deepEqual(resultOf(results, 12).conflicts[0].files, [
+      { path: "src/cart.ts", class: "code", members: ["computeTotal", "render"] },
+    ]);
+    assert.ok(resultOf(results, 15).notes.includes("The members of src/big.ts were not mapped."));
+    assert.ok(results.every((result) => result.degraded === false));
+
+    const degraded = buildResults(simulation, cfg, REPO, { ...members, degraded: [15] });
+    assert.deepEqual(
+      degraded.map((result) => result.degraded),
+      [false, true, false],
+    );
+  });
+
+  it("makes the check neutral on a same-member overlap", () => {
+    const cfg = config();
+    const { simulation, members } = memberCase();
+    const fifteen = resultOf(buildResults(simulation, cfg, REPO, members), 15);
+    const check = renderCheck(fifteen, cfg);
+    assert.equal(check.conclusion, "neutral");
+    assert.equal(check.title, "Member overlap with 1 pull request");
+    assert.ok(check.summary.includes("### Member overlaps"));
+    assert.ok(check.summary.includes(escapeText("computeTotal")));
+    assert.ok(check.summary.includes(PEERBUS_LINE));
+    const plain = resultOf(buildResults(simulation, cfg, REPO), 15);
+    assert.equal(renderCheck(plain, cfg).conclusion, "success");
+  });
+
+  it("shows a hint in hints, the check text and the job summary and changes nothing else", () => {
+    const cfg = config();
+    const { simulation, members } = memberCase({ name: "other" });
+    const without = memberCase({ name: "other", identifiers: [] });
+    const withHint = buildResults(simulation, cfg, REPO, members);
+    const noHint = buildResults(without.simulation, cfg, REPO, without.members);
+    const twenty = resultOf(withHint, 20);
+    const plain = resultOf(noHint, 20);
+    assert.equal(twenty.hints.length, 1);
+    assert.deepEqual(plain.hints, []);
+
+    const check = renderCheck(twenty, cfg);
+    const plainCheck = renderCheck(plain, cfg);
+    assert.equal(check.conclusion, plainCheck.conclusion);
+    assert.equal(check.title, plainCheck.title);
+    assert.equal(check.summary, plainCheck.summary);
+    const hints = check.text.indexOf("### Hints");
+    assert.ok(hints >= 0 && hints < check.text.indexOf("<!-- pr-conflict-radar:v1 "));
+    assert.match(check.text, /can be wrong/);
+    assert.ok(check.text.includes(escapeText("formatPrice")));
+    assert.ok(!plainCheck.text.includes("### Hints"));
+
+    assert.deepEqual(findings(twenty, cfg), findings(plain, cfg));
+    const data = (result) => ({ ...findings(result, cfg), notified: [] });
+    assert.equal(renderComment(data(twenty), cfg), renderComment(data(plain), cfg));
+
+    const job = renderJobSummary(withHint, cfg);
+    const plainJob = renderJobSummary(noHint, cfg);
+    const hintTables = tables(job).filter((table) => table[0].includes("Names"));
+    assert.equal(hintTables.length, 1);
+    // The hint of the pair is listed once, though both results carry it.
+    assert.equal(hintTables[0].length, 3);
+    assert.ok(job.includes(escapeText("formatPrice")));
+    assert.match(job, /can be wrong/);
+    assert.deepEqual(
+      tables(job).filter((table) => !table[0].includes("Names")),
+      tables(plainJob),
+    );
+  });
+
+  it("escapes a member name that carries markup", () => {
+    const cfg = config();
+    const name = "total<b>x</b>|[l](https://example.com)@m `t`";
+    const { simulation, members } = memberCase({ name, identifiers: ["formatPrice"] });
+    const results = buildResults(simulation, cfg, REPO, members);
+    for (const result of results) {
+      const check = renderCheck(result, cfg);
+      for (const text of [check.summary, stripMarker(check.text)]) {
+        for (const raw of ["<b>", "[l](", "https://example", "@m", "`t`", "|[l]"]) {
+          assert.ok(!text.includes(raw), raw);
+        }
+      }
+      assertTablesIntact(check.summary);
+    }
+    const twelve = renderCheck(resultOf(results, 12), cfg);
+    assert.ok(twelve.summary.includes(escapeText(name)));
+    assert.equal(extract(twelve.text).overlaps[0].members[0].name, name);
+    assert.ok(extract(twelve.text).conflicts[0].files[0].members.includes(name));
+    const job = renderJobSummary(results, cfg);
+    assert.ok(!job.includes("<b>"));
+    assert.ok(job.includes(escapeText(name)));
+    assertTablesIntact(job);
+  });
+});
