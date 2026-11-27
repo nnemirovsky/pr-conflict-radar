@@ -4,8 +4,10 @@
 //   prepare      fetches the listed commits, decides which mappers are needed,
 //                sets one output per registry entry and writes the state file
 //   build <key>  builds the member mapper of that registry entry
-//   scan         simulates, publishes and prints the job summary
-// With no phase, `--dry-run` runs all of them in one process.
+//   scan         simulates, maps the changed lines of the needed member
+//                mappers to members, publishes and prints the job summary
+// With no phase, `--dry-run` runs all of them in one process, the builds of the
+// needed mappers one after another.
 // Flags: `--config <path>`, `--force`, `--dry-run`.
 
 import {
@@ -32,7 +34,7 @@ import {
   runGit,
 } from "./lib/git.mjs";
 import { createGitHub, DEFAULT_API_URL, GitHubError } from "./lib/github.mjs";
-import { BuildError, mappersNeeded, runBuild } from "./lib/members.mjs";
+import { BuildError, mapMembers, mappersNeeded, runBuild } from "./lib/members.mjs";
 import { selectPrs } from "./lib/order.mjs";
 import { probe } from "./lib/probe.mjs";
 import { isCheckWrite, planPublish, publish } from "./lib/publish.mjs";
@@ -121,14 +123,17 @@ function parse(argv) {
 }
 
 // Runs the build of `entry` and logs the captured output of each step through
-// the log serializer.
-async function buildPhase(entry, work, { env, out }) {
+// the log serializer. A failed build throws, or with `tolerate` resolves to its
+// message; it resolves to `null` when the build succeeds.
+async function buildPhase(entry, work, { env, out, tolerate = false }) {
   try {
     const reports = await runBuild(entry, { work, env });
     for (const report of reports) out(logLine({ build: entry.key, ...report }));
+    return null;
   } catch (error) {
     if (error instanceof BuildError) {
       for (const report of error.output) out(logLine({ build: entry.key, ...report }));
+      if (tolerate) return error.message;
       throw new CliError("buildFailed", { detail: error.message });
     }
     throw error;
@@ -137,7 +142,8 @@ async function buildPhase(entry, work, { env, out }) {
 
 // Runs the CLI with `argv` (the arguments after the script name) and resolves
 // to the exit code. Options: `env`, `cwd`, `fetch` (the GitHub client's),
-// `registry`, `stdout` (anything with `write`) and `sleep`.
+// `registry`, `stdout` (anything with `write`), `sleep` and `mapperTimeout`,
+// the time limit of one mapper run in milliseconds.
 export async function main(argv, options = {}) {
   const {
     env = process.env,
@@ -146,6 +152,7 @@ export async function main(argv, options = {}) {
     registry = defaultRegistry,
     stdout = process.stdout,
     sleep,
+    mapperTimeout,
   } = options;
   const out = (line) => stdout.write(`${line}\n`);
   // Prose the tool composed: a line that could pass for a workflow command goes
@@ -191,7 +198,11 @@ export async function main(argv, options = {}) {
       else out(`${key}=${value}`);
     }
   };
-  const runnerWork = env.RUNNER_TEMP ? join(env.RUNNER_TEMP, "pr-conflict-radar") : null;
+  const runnerWork = env.RUNNER_TEMP ? resolve(env.RUNNER_TEMP, "pr-conflict-radar") : null;
+  // The environment of the builds and the mapper runs: the token stays out.
+  const toolEnv = { ...env };
+  delete toolEnv.GH_TOKEN;
+  delete toolEnv.GITHUB_TOKEN;
 
   let ownedWork = null;
   try {
@@ -205,7 +216,7 @@ export async function main(argv, options = {}) {
         throw new CliError("toolFailed", { detail: "RUNNER_TEMP is not set" });
       }
       mkdirSync(runnerWork, { recursive: true });
-      await buildPhase(entry, runnerWork, { env, out });
+      await buildPhase(entry, runnerWork, { env: toolEnv, out });
       return 0;
     }
 
@@ -262,14 +273,17 @@ export async function main(argv, options = {}) {
       mkdirSync(work, { recursive: true });
       writeFileSync(
         join(work, STATE_FILE),
-        JSON.stringify({ version: STATE_VERSION, repo, state }),
+        JSON.stringify({ version: STATE_VERSION, repo, state, needed }),
         { mode: 0o600 },
       );
       setOutputs(needed);
       return { state, needed };
     }
 
-    async function scanPhase(work) {
+    // Simulates the commits of the saved state, maps members with the needed
+    // mappers, publishes (or with `--dry-run` plans) and resolves to the mapper
+    // failures. `unavailable` maps a key to the message of its failed build.
+    async function scanPhase(work, unavailable = {}) {
       let saved;
       try {
         saved = JSON.parse(readFileSync(join(work, STATE_FILE), "utf8"));
@@ -285,7 +299,22 @@ export async function main(argv, options = {}) {
       await assertGitVersion(gitOptions);
       try {
         const simulation = await simulate(state.base, state.pulls, config, gitOptions);
-        const results = buildResults(simulation, config, repo);
+        const conflicting = new Set(simulation.baseConflicts.map((entry) => entry.pr));
+        const members = await mapMembers({
+          base: state.base,
+          pulls: simulation.order
+            .filter((number) => !conflicting.has(number))
+            .map((number) => simulation.pulls[number]),
+          config,
+          needed: saved.needed ?? {},
+          registry,
+          unavailable,
+          work,
+          env: toolEnv,
+          git: gitOptions,
+          ...(mapperTimeout ? { timeoutMs: mapperTimeout } : {}),
+        });
+        const results = buildResults(simulation, config, repo, members);
         let counts;
         if (dryRun) {
           const writes = planPublish(results, state, config);
@@ -299,7 +328,7 @@ export async function main(argv, options = {}) {
         summary(report);
         if (dryRun) text(report);
         out(logLine(results));
-        return { results, counts };
+        return members.failures;
       } finally {
         await deleteRefs(gitOptions);
       }
@@ -314,17 +343,21 @@ export async function main(argv, options = {}) {
     } else if (args.phase === "scan") {
       if (runnerWork === null)
         throw new CliError("toolFailed", { detail: "RUNNER_TEMP is not set" });
-      await scanPhase(runnerWork);
+      return mapperFailures(await scanPhase(runnerWork), { out, scrub });
     } else {
       const verdict = await probePhase();
       if (!verdict.changed) return 0;
       ownedWork = mkdtempSync(join(tmpdir(), "pr-conflict-radar-"));
       const { needed } = await preparePhase(ownedWork);
+      // A build that fails here is a mapper failure: the scan still publishes
+      // the textual result, marked degraded, and the run exits non-zero.
+      const unavailable = {};
       for (const entry of registry) {
-        if (needed[entry.key] && typeof entry.build === "function")
-          await buildPhase(entry, ownedWork, { env, out });
+        if (!needed[entry.key] || typeof entry.build !== "function") continue;
+        const failed = await buildPhase(entry, ownedWork, { env: toolEnv, out, tolerate: true });
+        if (failed !== null) unavailable[entry.key] = failed;
       }
-      await scanPhase(ownedWork);
+      return mapperFailures(await scanPhase(ownedWork, unavailable), { out, scrub });
     }
     return 0;
   } catch (error) {
@@ -333,6 +366,16 @@ export async function main(argv, options = {}) {
   } finally {
     if (ownedWork !== null) rmSync(ownedWork, { recursive: true, force: true });
   }
+}
+
+// Prints the annotation of the mapper failures of a scan that published its
+// results and then one line per failure, with the mapper's captured output,
+// through the log serializer. Returns the exit code.
+function mapperFailures(failures, { out, scrub }) {
+  if (failures.length === 0) return 0;
+  out(annotation("error", "mapperFailed", [failures.length]));
+  for (const failure of failures) out(scrub(logLine(failure)));
+  return 1;
 }
 
 // Prints the annotation of a failure and, on the next line, its detail through

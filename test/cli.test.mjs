@@ -3,10 +3,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, describe, it } from "node:test";
-import { embed } from "../lib/report.mjs";
+import { embed, extract } from "../lib/report.mjs";
 import { registry as defaultRegistry } from "../members/registry.mjs";
 import { main, QUICK_EXIT_LINE, repositoryFromUrl } from "../pr-conflict-radar.mjs";
 import { createFakeGitHub } from "./fake-github.mjs";
+import { fakeRun, runsIn } from "./fake-mapper.mjs";
 import { createFixture } from "./fixture-repo.mjs";
 
 const TOKEN = "ghs_secretTOKENvalue123";
@@ -64,7 +65,12 @@ function fakeFor(s, extra = {}) {
 let runCount = 0;
 
 // Runs the CLI once and returns `{code, output, lines, outputs, summary}`.
-async function run(s, fake, args, { env = {}, cwd = s.clone, registry, sleep } = {}) {
+async function run(
+  s,
+  fake,
+  args,
+  { env = {}, cwd = s.clone, registry, sleep, mapperTimeout } = {},
+) {
   runCount += 1;
   const outputFile = join(s.work, `output-${runCount}`);
   const summaryFile = join(s.work, `summary-${runCount}`);
@@ -75,6 +81,7 @@ async function run(s, fake, args, { env = {}, cwd = s.clone, registry, sleep } =
     cwd,
     fetch: fake.fetch,
     registry,
+    mapperTimeout,
     sleep: sleep ?? (async () => {}),
     stdout: { write: (text) => chunks.push(text) },
     env: {
@@ -500,5 +507,157 @@ describe("build", () => {
     assert.equal(result.code, 0, result.output);
     assert.equal(readFileSync(marker, "utf8"), "x");
     assert.equal(fake.writes.length, 0);
+  });
+});
+
+describe("member overlap", () => {
+  // One member over six lines: 12 and 15 change different lines of it, so the
+  // pair merges cleanly and overlaps on the member.
+  const MEMBER = "def Cart.add\n  total = 1\n  x\n  y\n  z\n  return total\ndef Other\n  q\n";
+  const overlapScenario = (ext = "fk", text = MEMBER) =>
+    scenario({
+      base: { [`src/a.${ext}`]: text },
+      heads: {
+        12: { [`src/a.${ext}`]: text.replace("total = 1", "total = 2") },
+        15: { [`src/a.${ext}`]: text.replace("return total", "return total + 1") },
+      },
+    });
+  const fakeEntry = (options = {}, extra = {}) => ({
+    key: "fake",
+    patterns: ["**/*.fk"],
+    run: fakeRun("fake", options),
+    ...extra,
+  });
+  const withFake = (entry) => [...defaultRegistry, entry];
+  const ownChecks = (fake) => fake.state.checks.filter((check) => check.own);
+
+  it("publishes a same-member overlap as a neutral check and writes no comment", async () => {
+    const s = overlapScenario();
+    const fake = fakeFor(s);
+    const log = join(s.work, "runs.log");
+    const outcomes = await phases(s, fake, [], { registry: withFake(fakeEntry({ log })) });
+    assert.equal(outcomes.prepare.outputs.fake, "true");
+    assert.equal(runsIn(log).length, 2);
+    const checks = ownChecks(fake);
+    assert.deepEqual(
+      checks.map((check) => check.conclusion),
+      ["neutral", "neutral"],
+    );
+    for (const check of checks) {
+      const result = extract(check.text);
+      assert.deepEqual(result.overlaps[0].members, [{ path: "src/a.fk", name: "Cart.add" }]);
+      assert.equal(result.degraded, false);
+    }
+    assert.equal(fake.state.comments.length, 0);
+    assert.match(outcomes.scan.summary, /### Member overlaps/);
+  });
+
+  it("publishes the textual result marked degraded on a mapper failure, then exits non-zero", async () => {
+    const s = overlapScenario();
+    const fake = fakeFor(s);
+    const registry = withFake(fakeEntry({ mode: "exit" }));
+    for (const phase of ["probe", "prepare"]) {
+      const outcome = await run(s, fake, [phase], { registry });
+      assert.equal(outcome.code, 0, outcome.output);
+    }
+    const scan = await run(s, fake, ["scan"], { registry });
+    assert.equal(scan.code, 1);
+    const checks = ownChecks(fake);
+    assert.equal(checks.length, 2);
+    for (const check of checks) {
+      const result = extract(check.text);
+      assert.equal(result.degraded, true);
+      assert.ok(
+        result.notes.includes("Member overlap is incomplete: the fake member mapper failed."),
+      );
+      assert.deepEqual(result.overlaps, []);
+    }
+    const at = scan.lines.indexOf(
+      "::error::1 member mapper runs failed. The detail is on the next line.",
+    );
+    assert.ok(at >= 0, scan.output);
+    const detail = JSON.parse(scan.lines[at + 1]);
+    assert.equal(detail.mapper, "fake");
+    assert.equal(detail.code, 3);
+    assert.match(detail.stderr, /boom/);
+    for (const line of scan.lines) {
+      assert.ok(!line.includes("##["), line);
+      if (/^\s*::/.test(line)) assert.equal(line, scan.lines[at]);
+    }
+    assert.ok(!scan.output.includes(TOKEN));
+    assert.match(scan.summary, /Degraded results: #12, #15\./);
+
+    const probe = await run(s, fake, ["probe"], { registry });
+    assert.equal(probe.code, 0, probe.output);
+    assert.equal(probe.outputs.changed, "true");
+    assert.match(probe.output, /degraded/);
+  });
+
+  it("stops a mapper over its time limit and takes the mapper-failure path in a dry run", async () => {
+    const s = overlapScenario();
+    const fake = fakeFor(s);
+    const pids = join(s.work, "pids.json");
+    const result = await run(s, fake, ["--dry-run"], {
+      registry: withFake(fakeEntry({ mode: "hang", pids })),
+      mapperTimeout: 300,
+    });
+    assert.equal(result.code, 1);
+    assert.equal(fake.writes.length, 0);
+    assert.ok(
+      result.lines.includes(
+        "::error::1 member mapper runs failed. The detail is on the next line.",
+      ),
+    );
+    const results = JSON.parse(result.lines.find((line) => line.startsWith("[")));
+    assert.ok(results.every((entry) => entry.degraded));
+    assert.deepEqual(radarRefs(s), []);
+  });
+
+  it("counts a failed build of a dry run as a mapper failure and still scans", async () => {
+    const s = overlapScenario();
+    const fake = fakeFor(s);
+    const log = join(s.work, "runs.log");
+    const entry = fakeEntry(
+      { log },
+      { build: () => [{ command: "pr-conflict-radar-no-such-tool", args: [] }] },
+    );
+    const result = await run(s, fake, ["--dry-run"], { registry: withFake(entry) });
+    assert.equal(result.code, 1);
+    assert.deepEqual(runsIn(log), []);
+    const at = result.lines.indexOf(
+      "::error::1 member mapper runs failed. The detail is on the next line.",
+    );
+    assert.ok(at >= 0, result.output);
+    assert.match(result.lines[at + 1], /pr-conflict-radar-no-such-tool/);
+    assert.match(result.output, /A publish would make 2 check writes/);
+    const results = JSON.parse(result.lines.find((line) => line.startsWith("[")));
+    assert.ok(results.every((entry) => entry.degraded));
+  });
+
+  it("reports an overlap found by the real TypeScript mapper in a dry run", async () => {
+    const source = [
+      "export function computeTotal(items) {",
+      "  let total = 0;",
+      "  for (const item of items) total += item;",
+      "  const tax = 0;",
+      "  const fee = 0;",
+      "  return total + tax + fee;",
+      "}",
+      "",
+    ].join("\n");
+    const s = scenario({
+      base: { "src/cart.ts": source },
+      heads: {
+        12: { "src/cart.ts": source.replace("let total = 0", "let total = 1") },
+        15: { "src/cart.ts": source.replace("return total", "return 2 * total") },
+      },
+    });
+    const fake = fakeFor(s);
+    const result = await run(s, fake, ["--dry-run"]);
+    assert.equal(result.code, 0, result.output);
+    const results = JSON.parse(result.lines.find((line) => line.startsWith("[")));
+    for (const entry of results) {
+      assert.deepEqual(entry.overlaps[0].members, [{ path: "src/cart.ts", name: "computeTotal" }]);
+    }
   });
 });

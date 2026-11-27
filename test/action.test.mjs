@@ -46,6 +46,15 @@ describe("action.yml", () => {
     assert.match(steps[0].run, /git 2\.38/);
   });
 
+  it("lets the scan run after a failed mapper build, which takes the mapper-failure path", () => {
+    const builds = steps.filter((candidate) => candidate.id?.startsWith("build-"));
+    assert.equal(builds.length, 5);
+    for (const build of builds) assert.equal(build["continue-on-error"], true, build.id);
+    for (const other of steps.filter((candidate) => !builds.includes(candidate))) {
+      assert.equal(other["continue-on-error"], undefined, other.name ?? other.id);
+    }
+  });
+
   it("runs prepare and scan only when changed, and probe always", () => {
     assert.equal(step("probe").if, undefined);
     assert.equal(step("prepare").if, GATE);
