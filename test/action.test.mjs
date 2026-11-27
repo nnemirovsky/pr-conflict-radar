@@ -22,6 +22,7 @@ describe("action.yml", () => {
     assert.equal(action.inputs["dry-run"].default, "false");
     assert.equal(action.inputs.force.default, "false");
     assert.deepEqual(Object.keys(action.outputs), ["changed"]);
+    assert.deepEqual(action.branding, { icon: "git-pull-request", color: "orange" });
     assert.equal(action.outputs.changed.value, expr("steps.probe.outputs.changed"));
   });
 
