@@ -582,13 +582,15 @@ As built: `lib/publish.mjs` exports `planPublish(results, state, config)`, `publ
 - Create: `lib/probe.mjs`
 - Create: `test/probe.test.mjs`
 
-- [ ] implement `probe(state, config)` returning `{changed, reason}` per "Quick exit"
-- [ ] write the quick-exit tests: a state whose results all record the current `state`, with matching comments, gives `changed: false`; so does one with a pull request left out by `maxPrs` that carries its "not simulated" result, and one with a truncated result
-- [ ] write the no-quick-exit tests, each asserting the reason: a push to the default branch, a push to a head, an order-label change, a draft or review-decision change, a new pull request, a closed one, a retargeted one with a simulated result, a degraded result, a malformed marker, a comment missing after an interrupted publish
-- [ ] write the stale-result tests: one pull request's check records the current `state` and another's the previous one after an interrupted publish; a head moved back to a commit that still carries an older check; each gives `changed: true`
-- [ ] write a test that a label outside `order.labelPriority`, a title edit and a new comment leave `changed: false`
-- [ ] write a test that a resolved comment carrying `notified` keys, and a comment whose rows' keys are all in its `notified` list, leave `changed: false` when nothing moved, and that a comment whose `notified` list misses a current row's key gives `changed: true`
-- [ ] run tests - must pass before task 10
+- [x] implement `probe(state, config)` returning `{changed, reason}` per "Quick exit"
+- [x] write the quick-exit tests: a state whose results all record the current `state`, with matching comments, gives `changed: false`; so does one with a pull request left out by `maxPrs` that carries its "not simulated" result, and one with a truncated result
+- [x] write the no-quick-exit tests, each asserting the reason: a push to the default branch, a push to a head, an order-label change, a draft or review-decision change, a new pull request, a closed one, a retargeted one with a simulated result, a degraded result, a malformed marker, a comment missing after an interrupted publish
+- [x] write the stale-result tests: one pull request's check records the current `state` and another's the previous one after an interrupted publish; a head moved back to a commit that still carries an older check; each gives `changed: true`
+- [x] write a test that a label outside `order.labelPriority`, a title edit and a new comment leave `changed: false`
+- [x] write a test that a resolved comment carrying `notified` keys, and a comment whose rows' keys are all in its `notified` list, leave `changed: false` when nothing moved, and that a comment whose `notified` list misses a current row's key gives `changed: true`
+- [x] run tests - must pass before task 10
+
+As built: `lib/probe.mjs` exports `probe(state, config)` and `REASON`. `probe` returns `{changed, reason, pr, message}`: `reason` is a key of `REASON` (`unchanged`, `checkMissing`, `degraded`, `baseMoved`, `prClosed`, `prRetargeted`, `prAdded`, `inputsChanged`, `stale`, `otherBaseResult`, `publishPending`), `pr` the pull request it names when it names one, and `message` one line of fixed words and numbers for the log. The conditions are checked in the order of "Quick exit"; for a stale `state` it names, in this order, a moved base, a recorded `order` entry that is closed or retargeted, a selected pull request missing from a recorded `order`, and changed `inputs` of a stale result's own pull request, and falls back to `stale`. The fourth condition plans a publish of the results the radar's own checks on the current heads record, other-branch pull requests included.
 
 ### Task 10: CLI entry and the composite action
 
