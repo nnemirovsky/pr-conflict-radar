@@ -23,7 +23,7 @@ The action runs in a workflow with write access to check runs and pull request c
 - Any way to make the action execute code, a script or a command taken from a pull request. It is designed to parse pull request content as data only.
 - Any way for pull request content (file names, file contents, branch names, titles, labels) to inject commands, or to inject markup that changes the meaning of what the action publishes on another pull request.
 - Leaking the workflow token or any other secret into logs, check runs or comments.
-- Reading or writing files outside the workspace and the runner's temp directory.
+- Writing anything derived from pull request content outside the repository's git directory and the runner's temp directory, or reading files outside the workspace and the runner's temp directory.
 - Publishing to a repository other than the one the workflow runs in.
 
 Out of scope:
