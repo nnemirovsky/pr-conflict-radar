@@ -190,6 +190,33 @@ describe("end to end", () => {
   });
 });
 
+describe("a head without shared history", () => {
+  it("gets a not-simulated result while the other pull requests are published", async () => {
+    const s = scenario();
+    s.shas[14] = s.fx.commit({ parent: null, files: { "src/cart.txt": "z\n" } });
+    s.fx.publishPull(14, s.shas[14]);
+    const fake = fakeFor(s);
+
+    const first = await phases(s, fake);
+    assert.equal(first.scan.code, 0);
+    const own = fake.state.checks.filter((check) => check.own);
+    assert.deepEqual(
+      own.map((check) => [check.head, check.conclusion, check.title]).sort(),
+      [
+        [s.shas[12], "neutral", "Conflicts with 1 pull request"],
+        [s.shas[14], "neutral", "Not simulated"],
+        [s.shas[15], "neutral", "Conflicts with 1 pull request"],
+        [s.shas[20], "success", "No conflicts"],
+      ].sort(),
+    );
+    assert.deepEqual(radarRefs(s), []);
+
+    const second = await run(s, fake, ["probe"]);
+    assert.equal(second.code, 0);
+    assert.equal(second.outputs.changed, "false");
+  });
+});
+
 describe("--dry-run", () => {
   it("writes nothing, prints the planned write count and leaves no ref behind", async () => {
     const s = scenario();

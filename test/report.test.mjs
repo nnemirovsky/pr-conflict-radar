@@ -336,6 +336,43 @@ describe("buildResults", () => {
     ]);
   });
 
+  it("gives a head without shared history a not-simulated result and names it in the others' notes", () => {
+    const cfg = config();
+    const note = "Not simulated: this pull request shares no history with the default branch.";
+    const one = [pull(12), pull(14), pull(15)];
+    const single = buildResults(
+      sim({
+        prs: one,
+        order: [12, 15],
+        pairs: [{ first: 12, second: 15 }],
+        notSimulated: [{ pr: 14, reason: NOT_SIMULATED.unrelated, note }],
+      }),
+      cfg,
+      REPO,
+    );
+    assert.equal(resultOf(single, 14).simulated, false);
+    assert.deepEqual(resultOf(single, 14).notes, [note]);
+    assert.deepEqual(resultOf(single, 12).notes, [
+      "Not checked against #14: it shares no history with the default branch.",
+    ]);
+    const two = buildResults(
+      sim({
+        prs: [...one, pull(16)],
+        order: [12, 15],
+        pairs: [{ first: 12, second: 15 }],
+        notSimulated: [
+          { pr: 14, reason: NOT_SIMULATED.unrelated, note },
+          { pr: 16, reason: NOT_SIMULATED.unrelated, note },
+        ],
+      }),
+      cfg,
+      REPO,
+    );
+    assert.deepEqual(resultOf(two, 15).notes, [
+      "Not checked against #14, #16: they share no history with the default branch.",
+    ]);
+  });
+
   it("sets author, withAuthor and sameAuthor for each kind of pair", () => {
     const prs = [
       pull(12, { author: "dev-a" }),

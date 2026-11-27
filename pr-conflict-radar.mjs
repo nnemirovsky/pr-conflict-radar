@@ -29,8 +29,8 @@ import {
   changedFiles,
   deleteRefs,
   fetchCommits,
+  findMergeBase,
   GitError,
-  mergeBase,
   runGit,
 } from "./lib/git.mjs";
 import { createGitHub, DEFAULT_API_URL, GitHubError } from "./lib/github.mjs";
@@ -263,7 +263,9 @@ export async function main(argv, options = {}) {
       const refs = await fetchCommits("origin", state.base.sha, heads, gitOptions);
       const paths = [];
       for (const pull of selected) {
-        const ancestor = await mergeBase(refs.base, refs.heads[pull.number], gitOptions);
+        // A head that shares no history with the base is not simulated.
+        const ancestor = await findMergeBase(refs.base, refs.heads[pull.number], gitOptions);
+        if (ancestor === null) continue;
         for (const file of await changedFiles(ancestor, pull.headRefOid, gitOptions)) {
           paths.push(file.path);
           if (file.previousPath !== null) paths.push(file.previousPath);

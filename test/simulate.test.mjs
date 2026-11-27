@@ -63,6 +63,28 @@ describe("simulate", () => {
     assert.deepEqual(result.notes, []);
   });
 
+  it("does not simulate a head that shares no history with the base and simulates the rest", async () => {
+    const one = edit({ "src/cart.ts": lines({ 5: "one" }) });
+    const two = edit({ "src/cart.ts": lines({ 5: "two" }) });
+    const orphan = fixture.commit({ parent: null, files: { "src/cart.ts": lines({ 5: "x" }) } });
+    const prs = [pr(12, one), pr(14, orphan), pr(15, two)];
+    const result = await run(prs);
+    assert.equal(result.state, stateOf(base, prs, config(), "main"));
+    assert.deepEqual(result.order, [12, 15]);
+    assert.deepEqual(Object.keys(result.pulls), ["12", "14", "15"]);
+    assert.deepEqual(result.baseConflicts, []);
+    assert.deepEqual(result.checked, ["12+15"]);
+    assert.equal(result.pairs[0].clean, false);
+    assert.deepEqual(result.train.merged, [12]);
+    assert.deepEqual(result.notSimulated, [
+      {
+        pr: 14,
+        reason: NOT_SIMULATED.unrelated,
+        note: "Not simulated: this pull request shares no history with the default branch.",
+      },
+    ]);
+  });
+
   it("names who merges first and who rebases in a conflicting pair", async () => {
     const one = edit({ "src/cart.ts": lines({ 5: "one" }), "README.md": lines({ 5: "one" }) });
     const two = edit({ "src/cart.ts": lines({ 5: "two" }), "README.md": lines({ 5: "two" }) });

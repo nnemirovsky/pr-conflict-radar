@@ -194,7 +194,7 @@ Types are checked. `checkName` is a non-empty string. `suggestPeerbus` is a bool
 
 **Merge order.** The predicted order is: ready before draft, then labels by `order.labelPriority`, then `APPROVED` before anything else, then the lower number first. In a pair, the first pull request merges first and the second one rebases.
 
-**`maxPrs`.** With more open pull requests than `maxPrs`, the first `maxPrs` in the predicted order are simulated. Every output says so. A pull request left out, and an open one that targets another branch, gets a short "not simulated" result with the reason.
+**`maxPrs`.** With more open pull requests than `maxPrs`, the first `maxPrs` in the predicted order are simulated. Every output says so. A pull request left out, an open one that targets another branch, and one whose head shares no history with the default branch each get a short "not simulated" result with the reason; the others are still simulated.
 
 ## The result
 

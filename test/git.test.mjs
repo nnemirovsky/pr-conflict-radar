@@ -8,6 +8,7 @@ import {
   commitMerge,
   deleteRefs,
   fetchCommits,
+  findMergeBase,
   GitError,
   MERGE_IDENTITY,
   mergeBase,
@@ -260,6 +261,15 @@ describe("mergeBase", () => {
     assert.equal(await mergeBase(left, right, { cwd }), root);
     const orphan = fixture.commit({ parent: null, files: { "d.txt": "d\n" } });
     await assert.rejects(mergeBase(left, orphan, { cwd }), isGitError);
+  });
+
+  it("finds no merge base for unrelated histories and throws for an unknown commit", async () => {
+    const root = fixture.commit({ branch: "main", files: { "a.txt": "a\n" } });
+    const left = fixture.commit({ parent: root, files: { "b.txt": "b\n" } });
+    assert.equal(await findMergeBase(left, root, { cwd }), root);
+    const orphan = fixture.commit({ parent: null, files: { "e.txt": "e\n" } });
+    assert.equal(await findMergeBase(left, orphan, { cwd }), null);
+    await assert.rejects(findMergeBase(left, "0".repeat(40), { cwd }), isGitError);
   });
 });
 
