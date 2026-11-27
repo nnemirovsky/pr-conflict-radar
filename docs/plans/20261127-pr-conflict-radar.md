@@ -515,11 +515,13 @@ As built: a pull request is the read query's object `{number, baseRefName, headR
 - Create: `lib/escape.mjs`
 - Create: `test/escape.test.mjs`
 
-- [ ] implement the text function per "Security model": the removed character categories, the decimal character references, `&#64;<!---->` for `@`, the `<code>` wrapper
-- [ ] implement the JSON serializer for the embedded marker and the log serializer (one line, `#` as `\u0023`), and the annotation helper that takes a message from a fixed set and numbers only
-- [ ] write text tests over hostile samples (a Markdown link, an image, emphasis, strikethrough, a bare URL, a `www.` host, an e-mail address, an `@` mention, an issue reference, an HTML tag, a closing `</code>`, a `|`, a backslash before a `|`, backticks, a line break, a tab, a bidirectional override, a zero-width space): between the wrapper tags the output holds only letters, digits, spaces, `/`, `-`, non-ASCII characters, decimal references and `&#64;<!---->`, and decoding the references gives the input without the removed characters
-- [ ] write serializer tests: the marker form holds no `<`, `>`, `&` or `--` for a value that carries `-->`, and parses back to the value; the log form of values carrying `##[error]x`, `##[set-output name=changed]false`, `::error::x` and a line break followed by `::add-mask::x` is one line, holds no `#`, begins with a JSON token and parses back to the value
-- [ ] run tests - must pass before task 6
+- [x] implement the text function per "Security model": the removed character categories, the decimal character references, `&#64;<!---->` for `@`, the `<code>` wrapper
+- [x] implement the JSON serializer for the embedded marker and the log serializer (one line, `#` as `\u0023`), and the annotation helper that takes a message from a fixed set and numbers only
+- [x] write text tests over hostile samples (a Markdown link, an image, emphasis, strikethrough, a bare URL, a `www.` host, an e-mail address, an `@` mention, an issue reference, an HTML tag, a closing `</code>`, a `|`, a backslash before a `|`, backticks, a line break, a tab, a bidirectional override, a zero-width space): between the wrapper tags the output holds only letters, digits, spaces, `/`, `-`, non-ASCII characters, decimal references and `&#64;<!---->`, and decoding the references gives the input without the removed characters
+- [x] write serializer tests: the marker form holds no `<`, `>`, `&` or `--` for a value that carries `-->`, and parses back to the value; the log form of values carrying `##[error]x`, `##[set-output name=changed]false`, `::error::x` and a line break followed by `::add-mask::x` is one line, holds no `#`, begins with a JSON token and parses back to the value
+- [x] run tests - must pass before task 6
+
+As built: `lib/escape.mjs` exports `escapeText(value)` (the text function; it returns the `<code>`-wrapped form and converts a non-string with `String`), `markerJson(value)` (the JSON that goes between `<!-- pr-conflict-radar:v1 ` and ` -->`; `embed` and `extract` in Task 6 build the marker around it), `logLine(value)` (also escapes NEL, LINE SEPARATOR and PARAGRAPH SEPARATOR, which JSON leaves raw, and writes `undefined` as `null`), and `annotation(level, message, numbers)`, which returns the `::<level>::<text>` line for a level of `error`, `warning` or `notice` and a key of `ANNOTATION_MESSAGES` (`toolFailed`, `configInvalid`, `tokenMissing`, `repositoryUnknown`, `gitFailed`, `commitsMissing`, `apiFailed`, `mapperFailed`, `buildFailed`), filling its numbered placeholders with finite numbers and throwing a `TypeError` on anything else. A later task that needs another message adds a key to `ANNOTATION_MESSAGES`.
 
 ### Task 6: Result model and renderers
 
