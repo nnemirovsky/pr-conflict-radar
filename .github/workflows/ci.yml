@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # The suite runs on the runner's default Node and then on Node 20, the
+      # `engines` minimum, in one job so the check name stays `test`.
+      - run: npm ci
+      - name: npm test (runner's default Node)
+        run: node --version && npm test
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: npm test (Node 20)
+        run: node --version && npm test
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+      - run: npm run lint

@@ -424,7 +424,7 @@ jobs:
 
 `.github/workflows/ci.yml`: `pull_request`, `push` to `main`, `workflow_dispatch`; top-level `permissions: contents: read`; `concurrency` per workflow and ref with `cancel-in-progress: true`; no `paths:` filter.
 
-- job `test` (`name: test`): checkout, Node 20 (`actions/setup-node@v7`, the `engines` minimum), the toolchains of the mapper tests (`actions/setup-dotnet@v6` from Task 12, `actions/setup-go@v7` with `go-version-file: members/go/go.mod` from Task 13, the runner's rustup from Task 14, `actions/setup-python@v7` with `3.12` from Task 15), `npm ci`, `npm test`; then `npm test` again on the runner's default Node, in the same job so the check name stays `test`. Under `CI` a mapper test file whose toolchain is missing fails instead of skipping, so a broken setup step cannot pass silently.
+- job `test` (`name: test`): checkout, the toolchains of the mapper tests (`actions/setup-dotnet@v6` from Task 12, `actions/setup-go@v7` with `go-version-file: members/go/go.mod` from Task 13, the runner's rustup from Task 14, `actions/setup-python@v7` with `3.12` from Task 15), `npm ci`, `npm test` on the runner's default Node; then Node 20 (`actions/setup-node@v7`, the `engines` minimum) and `npm test` again, in the same job so the check name stays `test`. The default Node runs first because `actions/setup-node` puts its Node on the `PATH` for the rest of the job. Under `CI` a mapper test file whose toolchain is missing fails instead of skipping, so a broken setup step cannot pass silently.
 - job `lint` (`name: lint`): `npm ci`, `npm run lint`.
 - **Lint tool: Biome.** One dev dependency with no JavaScript dependencies of its own, covering lint and formatting in one command (`biome check .`). `biome.json` turns on its VCS integration with `useIgnoreFile`, so nothing under an ignored directory is linted.
 - **YAML in tests: `yaml`.** A dev dependency with no dependencies of its own; the tests parse the workflow and action files with it. Both are dev dependencies, so `npm ci --omit=dev` never installs them for a consumer.
@@ -448,11 +448,11 @@ jobs:
 - Modify: `.github/dependabot.yml`
 - Create: `test/package.test.mjs`
 
-- [ ] write `package.json`: name, `version` `0.1.0`, `type: module`, `engines.node >=20`, scripts `test` (`node --test test/*.test.mjs`) and `lint` (`biome check .`), Biome and `yaml` as the dev dependencies; generate the lockfile
-- [ ] write `biome.json`, with the VCS integration and `useIgnoreFile` on, and `.github/workflows/ci.yml` per "CI for this repository", with jobs named exactly `test` and `lint`
-- [ ] add the `npm` ecosystem to `dependabot.yml`
-- [ ] write a test that `package.json` carries a semver `version`, both scripts and the `engines` range `>=20`, and that `ci.yml`, parsed with `yaml`, has jobs named `test` and `lint`, a top-level `permissions: contents: read` and no `paths:` key
-- [ ] run `npm test` and `npm run lint` - must pass before task 2
+- [x] write `package.json`: name, `version` `0.1.0`, `type: module`, `engines.node >=20`, scripts `test` (`node --test test/*.test.mjs`) and `lint` (`biome check .`), Biome and `yaml` as the dev dependencies; generate the lockfile
+- [x] write `biome.json`, with the VCS integration and `useIgnoreFile` on, and `.github/workflows/ci.yml` per "CI for this repository", with jobs named exactly `test` and `lint`
+- [x] add the `npm` ecosystem to `dependabot.yml`
+- [x] write a test that `package.json` carries a semver `version`, both scripts and the `engines` range `>=20`, and that `ci.yml`, parsed with `yaml`, has jobs named `test` and `lint`, a top-level `permissions: contents: read` and no `paths:` key
+- [x] run `npm test` and `npm run lint` - must pass before task 2
 
 ### Task 2: Config loader with defaults and the path classifier
 
