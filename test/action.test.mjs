@@ -27,7 +27,16 @@ describe("action.yml", () => {
 
   it("runs probe, prepare and scan in that order, after the version checks", () => {
     const ids = steps.map((candidate) => candidate.id);
-    assert.deepEqual(ids, [undefined, "probe", "prepare", "build-typescript", "scan"]);
+    assert.deepEqual(ids, [
+      undefined,
+      "probe",
+      "prepare",
+      "build-typescript",
+      undefined,
+      undefined,
+      "build-csharp",
+      "scan",
+    ]);
     assert.match(steps[0].run, /Node\.js 20/);
     assert.match(steps[0].run, /git 2\.38/);
   });
@@ -50,6 +59,25 @@ describe("action.yml", () => {
     assert.equal(step("build-typescript").env.ACTION_PATH, expr("github.action_path"));
   });
 
+  it("sets up .NET, caches NuGet and builds the C# mapper between prepare and scan, gated on its prepare output", () => {
+    const ids = steps.map((candidate) => candidate.id);
+    const gate = `${GATE} && steps.prepare.outputs.csharp == 'true'`;
+    const dotnet = steps.find((candidate) => candidate.uses?.startsWith("actions/setup-dotnet@v6"));
+    const cache = steps.find((candidate) => candidate.uses?.startsWith("actions/cache@v6"));
+    assert.ok(dotnet && cache);
+    assert.equal(dotnet.if, gate);
+    assert.equal(cache.if, gate);
+    assert.match(cache.with.path, /\.nuget\/packages/);
+    assert.equal(step("build-csharp").if, gate);
+    assert.match(step("build-csharp").run, /pr-conflict-radar\.mjs" build csharp$/);
+    assert.equal(step("build-csharp").env.ACTION_PATH, expr("github.action_path"));
+    const at = (candidate) => steps.indexOf(candidate);
+    assert.ok(ids.indexOf("prepare") < at(dotnet));
+    assert.ok(at(dotnet) < at(cache));
+    assert.ok(at(cache) < ids.indexOf("build-csharp"));
+    assert.ok(ids.indexOf("build-csharp") < ids.indexOf("scan"));
+  });
+
   it("runs each phase through the CLI in the action's directory", () => {
     for (const phase of ["probe", "prepare", "scan"]) {
       assert.match(step(phase).run, new RegExp(`pr-conflict-radar\\.mjs" ${phase} `));
@@ -59,7 +87,7 @@ describe("action.yml", () => {
   });
 
   it("passes inputs through the environment, never into the script text", () => {
-    for (const candidate of steps) {
+    for (const candidate of steps.filter((entry) => entry.run !== undefined)) {
       assert.doesNotMatch(candidate.run, /\$\{\{/);
     }
   });

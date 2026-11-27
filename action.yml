@@ -80,6 +80,27 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: node "$ACTION_PATH/pr-conflict-radar.mjs" build typescript
 
+    - name: Set up .NET
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.csharp == 'true'
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Cache NuGet packages
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.csharp == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ github.action_ref }}
+
+    - id: build-csharp
+      name: Build the C# member mapper
+      if: steps.probe.outputs.changed == 'true' && steps.prepare.outputs.csharp == 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/pr-conflict-radar.mjs" build csharp
+
     - id: scan
       name: Scan
       if: steps.probe.outputs.changed == 'true'

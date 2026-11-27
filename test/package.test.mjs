@@ -61,6 +61,14 @@ describe("ci.yml", () => {
     assert.equal(hasKey(ci, "paths-ignore"), false);
   });
 
+  it("sets up .NET in the test job before the suite runs", () => {
+    const uses = ci.jobs.test.steps.map((step) => step.uses ?? "");
+    const dotnet = uses.findIndex((value) => value.startsWith("actions/setup-dotnet@v6"));
+    assert.ok(dotnet >= 0);
+    const suite = ci.jobs.test.steps.findIndex((step) => step.run?.includes("npm test"));
+    assert.ok(dotnet < suite);
+  });
+
   it("runs on pull requests, pushes to main and manual dispatch", () => {
     assert.ok("pull_request" in ci.on);
     assert.deepEqual(ci.on.push.branches, ["main"]);
